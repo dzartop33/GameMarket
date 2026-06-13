@@ -82,7 +82,9 @@ export default function EditPage({
     });
   }
 
-  function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleImage(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = e.target.files?.[0] || null;
     setImage(file);
 
