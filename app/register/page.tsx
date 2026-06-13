@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,47 +12,59 @@ export default function RegisterPage() {
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
+
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanUsername) {
+      alert("Введите никнейм");
+      return;
+    }
+
     setLoading(true);
 
-    const { data: signUpData, error: signUpError } =
-      await supabase.auth.signUp({
-        email,
-        password,
-      });
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", cleanUsername)
+      .maybeSingle();
 
-    if (signUpError) {
-      alert(signUpError.message);
+    if (existingProfile) {
+      alert("Такой никнейм уже занят");
       setLoading(false);
       return;
     }
 
-    const loginResult =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-    if (loginResult.error) {
-      alert(loginResult.error.message);
-      setLoading(false);
-      return;
-    }
-
-    const user = loginResult.data.user;
-
-    if (user) {
-      await supabase.from("profiles").insert([
-        {
-          id: user.id,
-          email: user.email,
-          username: username,
+    const { error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: {
+          username: cleanUsername,
         },
-      ]);
+      },
+    });
+
+    if (error) {
+      alert(error.message);
+      setLoading(false);
+      return;
     }
+
+    const { error: loginError } =
+      await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
 
     setLoading(false);
-    router.push("/");
-    router.refresh();
+
+    if (loginError) {
+      alert(loginError.message);
+      return;
+    }
+
+    window.location.assign("/");
   }
 
   return (
@@ -99,6 +109,7 @@ export default function RegisterPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
                 className="w-full p-4 rounded-xl bg-zinc-800 border border-zinc-700 focus:border-cyan-500 outline-none transition"
                 required
               />
@@ -113,6 +124,7 @@ export default function RegisterPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Минимум 6 символов"
                 className="w-full p-4 rounded-xl bg-zinc-800 border border-zinc-700 focus:border-cyan-500 outline-none transition"
                 required
               />
@@ -130,7 +142,10 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-zinc-400 text-center">
           Уже есть аккаунт?{" "}
-          <Link href="/login" className="text-cyan-400 hover:underline">
+          <Link
+            href="/login"
+            className="text-cyan-400 hover:underline"
+          >
             Войти
           </Link>
         </p>

@@ -2,30 +2,37 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+
+    const cleanLogin = login.trim();
+    let emailToUse = cleanLogin;
+
     setLoading(true);
 
-    let emailToUse = login;
+    if (!cleanLogin.includes("@")) {
+      const { data: profile, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("email")
+          .eq("username", cleanLogin)
+          .maybeSingle();
 
-    if (!login.includes("@")) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("username", login)
-        .single();
+      if (profileError) {
+        alert(profileError.message);
+        setLoading(false);
+        return;
+      }
 
       if (!profile) {
-        alert("Пользователь не найден");
+        alert("Пользователь с таким логином не найден");
         setLoading(false);
         return;
       }
@@ -46,8 +53,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/");
-    router.refresh();
+    window.location.assign("/");
   }
 
   return (
@@ -92,6 +98,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Введите пароль"
                 className="w-full p-4 rounded-xl bg-zinc-800 border border-zinc-700 focus:border-cyan-500 outline-none transition"
                 required
               />
@@ -109,7 +116,10 @@ export default function LoginPage() {
 
         <p className="mt-6 text-zinc-400 text-center">
           Нет аккаунта?{" "}
-          <Link href="/register" className="text-cyan-400 hover:underline">
+          <Link
+            href="/register"
+            className="text-cyan-400 hover:underline"
+          >
             Зарегистрироваться
           </Link>
         </p>

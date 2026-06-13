@@ -33,22 +33,25 @@ export default function AuthButtons() {
       return;
     }
 
+    const user = session.user;
+
+    setUsername(user.email?.split("@")[0] || user.email || null);
+    setLoaded(true);
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("username")
-      .eq("id", session.user.id)
-      .single();
+      .eq("id", user.id)
+      .maybeSingle();
 
-    setUsername(
-      profile?.username || session.user.email || null
-    );
-
-    setLoaded(true);
+    if (profile?.username) {
+      setUsername(profile.username);
+    }
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
-    window.location.href = "/";
+    window.location.assign("/");
   }
 
   if (!loaded) {
@@ -62,7 +65,6 @@ export default function AuthButtons() {
       <div className="flex items-center gap-3">
         <Link
           href="/profile"
-          prefetch={true}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition"
         >
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500" />
@@ -86,7 +88,6 @@ export default function AuthButtons() {
     <div className="flex items-center gap-3">
       <Link
         href="/login"
-        prefetch={true}
         className="px-4 py-2 rounded-xl text-zinc-300 hover:text-white transition"
       >
         Вход
@@ -94,7 +95,6 @@ export default function AuthButtons() {
 
       <Link
         href="/register"
-        prefetch={true}
         className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-semibold hover:opacity-90 transition"
       >
         Регистрация
