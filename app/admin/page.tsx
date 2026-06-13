@@ -9,6 +9,7 @@ type UserData = {
   balance: number;
   username?: string;
   is_blocked?: boolean;
+  role?: string;
 };
 
 type DepositRequest = {
@@ -41,8 +42,6 @@ type Deal = {
   created_at: string;
 };
 
-const ADMIN_EMAILS = ["dzartop33@gmail.com"];
-
 export default function AdminPage() {
   const [tab, setTab] = useState("deposits");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -65,7 +64,18 @@ export default function AdminPage() {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session?.user || !ADMIN_EMAILS.includes(session.user.email || "")) {
+    if (!session?.user) {
+      setLoading(false);
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", session.user.id)
+      .maybeSingle();
+
+    if (profile?.role !== "admin") {
       setLoading(false);
       return;
     }
@@ -83,7 +93,7 @@ export default function AdminPage() {
 
     const { data: profilesData } = await supabase
       .from("profiles")
-      .select("id, username, is_blocked");
+      .select("id, username, is_blocked, role");
 
     const merged = (usersData || []).map((u) => {
       const profile = profilesData?.find((p) => p.id === u.id);
@@ -91,6 +101,7 @@ export default function AdminPage() {
         ...u,
         username: profile?.username || "",
         is_blocked: profile?.is_blocked || false,
+        role: profile?.role || "user",
       };
     });
 
@@ -150,7 +161,7 @@ export default function AdminPage() {
       },
     ]);
 
-    alert(`Заявка #${deposit.id} одобрена. Пользователю зачислено ${netAmount.toFixed(2)} ₽`);
+    alert(`Заявка #${deposit.id} одобрена. Зачислено ${netAmount.toFixed(2)} ₽`);
     loadAll();
   }
 
@@ -195,6 +206,25 @@ export default function AdminPage() {
     await supabase
       .from("profiles")
       .update({ is_blocked: !currentlyBlocked })
+      .eq("id", userId);
+
+    loadAll();
+  }
+
+  async function toggleRole(userId: string, currentRole: string) {
+    const newRole = currentRole === "admin" ? "user" : "admin";
+
+    const confirmed = confirm(
+      newRole === "admin"
+        ? "Назначить пользователя администратором?"
+        : "Снять права администратора?"
+    );
+
+    if (!confirmed) return;
+
+    await supabase
+      .from("profiles")
+      .update({ role: newRole })
       .eq("id", userId);
 
     loadAll();
@@ -343,13 +373,18 @@ export default function AdminPage() {
             {users.map((user) => (
               <div
                 key={user.id}
-                className={`bg-zinc-900 border rounded-xl p-4 flex items-center justify-between ${
+                className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                   user.is_blocked ? "border-red-500/30" : "border-zinc-800"
                 }`}
               >
                 <div>
                   <p className="font-bold">
                     {user.username || user.email}
+                    {user.role === "admin" && (
+                      <span className="text-cyan-400 text-xs ml-2">
+                        [Админ]
+                      </span>
+                    )}
                     {user.is_blocked && (
                       <span className="text-red-400 text-xs ml-2">
                         [Заблокирован]
@@ -359,8 +394,19 @@ export default function AdminPage() {
                   <p className="text-zinc-500 text-xs">{user.email}</p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <p className="font-bold">{user.balance.toFixed(2)} ₽</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold mr-2">{user.balance.toFixed(2)} ₽</p>
+
+                  <button
+                    onClick={() => toggleRole(user.id, user.role || "user")}
+                    className={`px-3 py-1 rounded-lg text-xs ${
+                      user.role === "admin"
+                        ? "bg-yellow-500/20 text-yellow-400"
+                        : "bg-cyan-500/20 text-cyan-400"
+                    }`}
+                  >
+                    {user.role === "admin" ? "Снять админа" : "Сделать админом"}
+                  </button>
 
                   <button
                     onClick={() => toggleBlock(user.id, !!user.is_blocked)}
