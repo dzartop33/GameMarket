@@ -51,6 +51,7 @@ export default function AdminPage() {
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [tabLoaded, setTabLoaded] = useState<Record<string, boolean>>({});
 
   const [selectedUser, setSelectedUser] = useState("");
   const [amount, setAmount] = useState("");
@@ -58,6 +59,12 @@ export default function AdminPage() {
   useEffect(() => {
     checkAdmin();
   }, []);
+
+  useEffect(() => {
+    if (isAdmin && !tabLoaded[tab]) {
+      loadTab(tab);
+    }
+  }, [tab, isAdmin]);
 
   async function checkAdmin() {
     const {
@@ -81,54 +88,60 @@ export default function AdminPage() {
     }
 
     setIsAdmin(true);
-    await loadAll();
     setLoading(false);
   }
 
-  async function loadAll() {
-    const { data: usersData } = await supabase
-      .from("balances")
-      .select("*")
-      .order("email");
+  async function loadTab(tabName: string) {
+    if (tabName === "deposits") {
+      const { data } = await supabase
+        .from("deposit_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
 
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("id, username, is_blocked, role");
+      setDeposits(data || []);
+    }
 
-    const merged = (usersData || []).map((u) => {
-      const profile = profilesData?.find((p) => p.id === u.id);
-      return {
-        ...u,
-        username: profile?.username || "",
-        is_blocked: profile?.is_blocked || false,
-        role: profile?.role || "user",
-      };
-    });
+    if (tabName === "users" || tabName === "balance") {
+      const [balancesResult, profilesResult] = await Promise.all([
+        supabase.from("balances").select("*").order("email"),
+        supabase.from("profiles").select("id, username, is_blocked, role"),
+      ]);
 
-    setUsers(merged);
+      const merged = (balancesResult.data || []).map((u) => {
+        const profile = profilesResult.data?.find((p) => p.id === u.id);
+        return {
+          ...u,
+          username: profile?.username || "",
+          is_blocked: profile?.is_blocked || false,
+          role: profile?.role || "user",
+        };
+      });
 
-    const { data: depositsData } = await supabase
-      .from("deposit_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+      setUsers(merged);
+    }
 
-    setDeposits(depositsData || []);
+    if (tabName === "products") {
+      const { data } = await supabase
+        .from("products")
+        .select("id, title, seller, price, status, is_moderated")
+        .order("id", { ascending: false })
+        .limit(50);
 
-    const { data: productsData } = await supabase
-      .from("products")
-      .select("id, title, seller, price, status, is_moderated")
-      .order("id", { ascending: false })
-      .limit(50);
+      setProducts(data || []);
+    }
 
-    setProducts(productsData || []);
+    if (tabName === "deals") {
+      const { data } = await supabase
+        .from("deals")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
 
-    const { data: dealsData } = await supabase
-      .from("deals")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
+      setDeals(data || []);
+    }
 
-    setDeals(dealsData || []);
+    setTabLoaded((prev) => ({ ...prev, [tabName]: true }));
   }
 
   async function approveDeposit(deposit: DepositRequest) {
@@ -147,22 +160,24 @@ export default function AdminPage() {
 
     const currentBalance = balanceData ? Number(balanceData.balance) : 0;
 
-    await supabase
-      .from("balances")
-      .update({ balance: currentBalance + netAmount })
-      .eq("id", deposit.user_id);
-
-    await supabase.from("transactions").insert([
-      {
-        user_id: deposit.user_id,
-        type: "deposit",
-        amount: netAmount,
-        description: `Пополнение через СБП (внесено ${deposit.amount} ₽, зачислено ${netAmount.toFixed(2)} ₽)`,
-      },
+    await Promise.all([
+      supabase
+        .from("balances")
+        .update({ balance: currentBalance + netAmount })
+        .eq("id", deposit.user_id),
+      supabase.from("transactions").insert([
+        {
+          user_id: deposit.user_id,
+          type: "deposit",
+          amount: netAmount,
+          description: `Пополнение СБП (внесено ${deposit.amount} ₽, зачислено ${netAmount.toFixed(2)} ₽)`,
+        },
+      ]),
     ]);
 
-    alert(`Заявка #${deposit.id} одобрена. Зачислено ${netAmount.toFixed(2)} ₽`);
-    loadAll();
+    alert(`Зачислено ${netAmount.toFixed(2)} ₽`);
+    setTabLoaded((prev) => ({ ...prev, deposits: false }));
+    loadTab("deposits");
   }
 
   async function rejectDeposit(id: number) {
@@ -171,7 +186,8 @@ export default function AdminPage() {
       .update({ status: "rejected" })
       .eq("id", id);
 
-    loadAll();
+    setTabLoaded((prev) => ({ ...prev, deposits: false }));
+    loadTab("deposits");
   }
 
   async function addBalance() {
@@ -183,40 +199,41 @@ export default function AdminPage() {
     const user = users.find((u) => u.id === selectedUser);
     if (!user) return;
 
-    await supabase
-      .from("balances")
-      .update({ balance: user.balance + amountNum })
-      .eq("id", selectedUser);
-
-    await supabase.from("transactions").insert([
-      {
-        user_id: selectedUser,
-        type: "deposit",
-        amount: amountNum,
-        description: "Пополнение администратором",
-      },
+    await Promise.all([
+      supabase
+        .from("balances")
+        .update({ balance: user.balance + amountNum })
+        .eq("id", selectedUser),
+      supabase.from("transactions").insert([
+        {
+          user_id: selectedUser,
+          type: "deposit",
+          amount: amountNum,
+          description: "Пополнение администратором",
+        },
+      ]),
     ]);
 
     setAmount("");
-    loadAll();
-    alert(`Баланс пополнен на ${amountNum} ₽`);
+    setTabLoaded((prev) => ({ ...prev, balance: false, users: false }));
+    loadTab("balance");
   }
 
-  async function toggleBlock(userId: string, currentlyBlocked: boolean) {
+  async function toggleBlock(userId: string, blocked: boolean) {
     await supabase
       .from("profiles")
-      .update({ is_blocked: !currentlyBlocked })
+      .update({ is_blocked: !blocked })
       .eq("id", userId);
 
-    loadAll();
+    setTabLoaded((prev) => ({ ...prev, users: false }));
+    loadTab("users");
   }
 
-  async function toggleRole(userId: string, currentRole: string) {
-    const newRole = currentRole === "admin" ? "user" : "admin";
-
+  async function toggleRole(userId: string, role: string) {
+    const newRole = role === "admin" ? "user" : "admin";
     const confirmed = confirm(
       newRole === "admin"
-        ? "Назначить пользователя администратором?"
+        ? "Назначить администратором?"
         : "Снять права администратора?"
     );
 
@@ -227,24 +244,27 @@ export default function AdminPage() {
       .update({ role: newRole })
       .eq("id", userId);
 
-    loadAll();
+    setTabLoaded((prev) => ({ ...prev, users: false }));
+    loadTab("users");
   }
 
-  async function toggleModeration(productId: number, current: boolean) {
+  async function toggleModeration(id: number, current: boolean) {
     await supabase
       .from("products")
       .update({ is_moderated: !current })
-      .eq("id", productId);
+      .eq("id", id);
 
-    loadAll();
+    setTabLoaded((prev) => ({ ...prev, products: false }));
+    loadTab("products");
   }
 
   async function deleteProduct(id: number) {
-    const confirmed = confirm("Удалить объявление?");
-    if (!confirmed) return;
+    if (!confirm("Удалить?")) return;
 
     await supabase.from("products").delete().eq("id", id);
-    loadAll();
+
+    setTabLoaded((prev) => ({ ...prev, products: false }));
+    loadTab("products");
   }
 
   if (loading) {
@@ -276,9 +296,7 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-12">
-        <h1 className="text-4xl font-bold mb-8">
-          Админ-панель
-        </h1>
+        <h1 className="text-4xl font-bold mb-8">Админ-панель</h1>
 
         <div className="flex flex-wrap gap-2 mb-8">
           {tabs.map((t) => (
@@ -286,9 +304,7 @@ export default function AdminPage() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-xl text-sm font-semibold relative ${
-                tab === t.id
-                  ? "bg-cyan-500 text-black"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                tab === t.id ? "bg-cyan-500 text-black" : "bg-zinc-800 hover:bg-zinc-700"
               } transition`}
             >
               {t.label}
@@ -301,245 +317,125 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {tab === "deposits" && (
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">
-              Заявки на пополнение ({pendingCount} ожидает)
-            </h2>
-
-            {deposits.length === 0 ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
-                <p className="text-zinc-400">Заявок нет</p>
-              </div>
-            ) : (
-              deposits.map((dep) => (
-                <div
-                  key={dep.id}
-                  className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                    dep.status === "pending"
-                      ? "border-yellow-500/30"
-                      : "border-zinc-800"
-                  }`}
-                >
-                  <div>
-                    <p className="font-bold">{dep.user_email}</p>
-                    <p className="text-zinc-400 text-sm">
-                      Внесено: {dep.amount.toFixed(2)} ₽ → Зачисление: {(dep.amount * 0.9).toFixed(2)} ₽
-                    </p>
-                    <p className="text-zinc-500 text-xs">
-                      #{dep.id} · {dep.payment_method} · {new Date(dep.created_at).toLocaleString("ru")}
-                    </p>
-                    {dep.comment && (
-                      <p className="text-cyan-400 text-xs mt-1">
-                        {dep.comment}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    {dep.status === "pending" ? (
-                      <>
-                        <button
-                          onClick={() => approveDeposit(dep)}
-                          className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold"
-                        >
-                          ✓ Одобрить
-                        </button>
-                        <button
-                          onClick={() => rejectDeposit(dep.id)}
-                          className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm"
-                        >
-                          ✕ Отклонить
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-sm">
-                        {dep.status === "approved" ? "✅ Одобрено" : "❌ Отклонено"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
+        {!tabLoaded[tab] ? (
+          <div className="flex justify-center py-12">
+            <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
           </div>
-        )}
-
-        {tab === "users" && (
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">
-              Пользователи ({users.length})
-            </h2>
-
-            {users.map((user) => (
-              <div
-                key={user.id}
-                className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                  user.is_blocked ? "border-red-500/30" : "border-zinc-800"
-                }`}
-              >
-                <div>
-                  <p className="font-bold">
-                    {user.username || user.email}
-                    {user.role === "admin" && (
-                      <span className="text-cyan-400 text-xs ml-2">
-                        [Админ]
-                      </span>
-                    )}
-                    {user.is_blocked && (
-                      <span className="text-red-400 text-xs ml-2">
-                        [Заблокирован]
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-zinc-500 text-xs">{user.email}</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <p className="font-bold mr-2">{user.balance.toFixed(2)} ₽</p>
-
-                  <button
-                    onClick={() => toggleRole(user.id, user.role || "user")}
-                    className={`px-3 py-1 rounded-lg text-xs ${
-                      user.role === "admin"
-                        ? "bg-yellow-500/20 text-yellow-400"
-                        : "bg-cyan-500/20 text-cyan-400"
-                    }`}
-                  >
-                    {user.role === "admin" ? "Снять админа" : "Сделать админом"}
-                  </button>
-
-                  <button
-                    onClick={() => toggleBlock(user.id, !!user.is_blocked)}
-                    className={`px-3 py-1 rounded-lg text-xs ${
-                      user.is_blocked
-                        ? "bg-green-500/20 text-green-400"
-                        : "bg-red-500/20 text-red-400"
-                    }`}
-                  >
-                    {user.is_blocked ? "Разблокировать" : "Заблокировать"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "products" && (
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">
-              Объявления ({products.length})
-            </h2>
-
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between"
-              >
-                <div>
-                  <p className="font-bold">{product.title}</p>
-                  <p className="text-zinc-500 text-xs">
-                    {product.seller} · {product.price} · {product.status || "active"}
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => toggleModeration(product.id, product.is_moderated)}
-                    className={`px-3 py-1 rounded-lg text-xs ${
-                      product.is_moderated
-                        ? "bg-red-500/20 text-red-400"
-                        : "bg-green-500/20 text-green-400"
-                    }`}
-                  >
-                    {product.is_moderated ? "Скрыть" : "Показать"}
-                  </button>
-
-                  <button
-                    onClick={() => deleteProduct(product.id)}
-                    className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400"
-                  >
-                    Удалить
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "deals" && (
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">
-              Сделки ({deals.length})
-            </h2>
-
-            {deals.length === 0 ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
-                <p className="text-zinc-400">Сделок нет</p>
-              </div>
-            ) : (
-              deals.map((deal) => (
-                <div
-                  key={deal.id}
-                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold">{deal.product_title}</p>
-                      <p className="text-zinc-500 text-xs">
-                        {deal.buyer_email} → {deal.seller_email}
-                      </p>
-                      <p className="text-zinc-500 text-xs">
-                        {new Date(deal.created_at).toLocaleString("ru")}
-                      </p>
+        ) : (
+          <>
+            {tab === "deposits" && (
+              <div className="space-y-3">
+                {deposits.length === 0 ? (
+                  <p className="text-zinc-400">Заявок нет</p>
+                ) : (
+                  deposits.map((dep) => (
+                    <div key={dep.id} className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${dep.status === "pending" ? "border-yellow-500/30" : "border-zinc-800"}`}>
+                      <div>
+                        <p className="font-bold">{dep.user_email}</p>
+                        <p className="text-zinc-400 text-sm">
+                          {dep.amount.toFixed(2)} ₽ → {(dep.amount * 0.9).toFixed(2)} ₽
+                        </p>
+                        <p className="text-zinc-500 text-xs">#{dep.id} · {new Date(dep.created_at).toLocaleString("ru")}</p>
+                        {dep.comment && <p className="text-cyan-400 text-xs mt-1">{dep.comment}</p>}
+                      </div>
+                      <div className="flex gap-2">
+                        {dep.status === "pending" ? (
+                          <>
+                            <button onClick={() => approveDeposit(dep)} className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold">✓</button>
+                            <button onClick={() => rejectDeposit(dep.id)} className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm">✕</button>
+                          </>
+                        ) : (
+                          <span className="text-sm">{dep.status === "approved" ? "✅" : "❌"}</span>
+                        )}
+                      </div>
                     </div>
-
-                    <div className="text-right">
-                      <p className="font-bold">{deal.price}</p>
-                      <p className="text-xs">{deal.status}</p>
-                    </div>
-                  </div>
-                </div>
-              ))
+                  ))
+                )}
+              </div>
             )}
-          </div>
-        )}
 
-        {tab === "balance" && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-4">
-              Пополнить баланс вручную
-            </h2>
-
-            <div className="flex flex-col md:flex-row gap-3">
-              <select
-                value={selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value)}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4"
-              >
-                <option value="">Выберите пользователя</option>
+            {tab === "users" && (
+              <div className="space-y-3">
                 {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.email} ({user.balance.toFixed(2)} ₽)
-                  </option>
+                  <div key={user.id} className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 ${user.is_blocked ? "border-red-500/30" : "border-zinc-800"}`}>
+                    <div>
+                      <p className="font-bold">
+                        {user.username || user.email}
+                        {user.role === "admin" && <span className="text-cyan-400 text-xs ml-2">[Админ]</span>}
+                        {user.is_blocked && <span className="text-red-400 text-xs ml-2">[Бан]</span>}
+                      </p>
+                      <p className="text-zinc-500 text-xs">{user.email}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold mr-2">{user.balance.toFixed(2)} ₽</p>
+                      <button onClick={() => toggleRole(user.id, user.role || "user")} className={`px-3 py-1 rounded-lg text-xs ${user.role === "admin" ? "bg-yellow-500/20 text-yellow-400" : "bg-cyan-500/20 text-cyan-400"}`}>
+                        {user.role === "admin" ? "Снять" : "Админ"}
+                      </button>
+                      <button onClick={() => toggleBlock(user.id, !!user.is_blocked)} className={`px-3 py-1 rounded-lg text-xs ${user.is_blocked ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                        {user.is_blocked ? "Разбан" : "Бан"}
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </select>
+              </div>
+            )}
 
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Сумма"
-                className="w-40 bg-zinc-800 border border-zinc-700 rounded-xl p-4"
-              />
+            {tab === "products" && (
+              <div className="space-y-3">
+                {products.map((product) => (
+                  <div key={product.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-bold">{product.title}</p>
+                      <p className="text-zinc-500 text-xs">{product.seller} · {product.price}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => toggleModeration(product.id, product.is_moderated)} className={`px-3 py-1 rounded-lg text-xs ${product.is_moderated ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
+                        {product.is_moderated ? "Скрыть" : "Показать"}
+                      </button>
+                      <button onClick={() => deleteProduct(product.id)} className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400">Удалить</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              <button
-                onClick={addBalance}
-                className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold"
-              >
-                Пополнить
-              </button>
-            </div>
-          </div>
+            {tab === "deals" && (
+              <div className="space-y-3">
+                {deals.length === 0 ? (
+                  <p className="text-zinc-400">Сделок нет</p>
+                ) : (
+                  deals.map((deal) => (
+                    <div key={deal.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold">{deal.product_title}</p>
+                        <p className="text-zinc-500 text-xs">{deal.buyer_email} → {deal.seller_email}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold">{deal.price}</p>
+                        <p className="text-xs">{deal.status}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {tab === "balance" && (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+                <h2 className="text-xl font-bold mb-4">Пополнить вручную</h2>
+                <div className="flex flex-col md:flex-row gap-3">
+                  <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4">
+                    <option value="">Выберите пользователя</option>
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>{user.email} ({user.balance.toFixed(2)} ₽)</option>
+                    ))}
+                  </select>
+                  <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Сумма" className="w-40 bg-zinc-800 border border-zinc-700 rounded-xl p-4" />
+                  <button onClick={addBalance} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold">Пополнить</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
