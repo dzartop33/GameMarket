@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getProducts } from "@/lib/products";
 
+export const revalidate = 30;
+
 export default async function SellersPage() {
   const products = await getProducts();
 
@@ -40,9 +42,10 @@ export default async function SellersPage() {
               <Link
                 key={seller.name}
                 href={`/seller/${seller.name}`}
+                prefetch={true}
               >
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-cyan-500 transition">
-                  <div className="w-20 h-20 rounded-full bg-zinc-800 mx-auto mb-4"></div>
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 mx-auto mb-4" />
 
                   <h2 className="text-xl font-bold text-center">
                     {seller.name}

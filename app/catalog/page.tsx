@@ -1,6 +1,8 @@
 import CatalogClient from "@/components/CatalogClient";
 import { getProducts } from "@/lib/products";
 
+export const revalidate = 30;
+
 export default async function CatalogPage() {
   const products = await getProducts();
 

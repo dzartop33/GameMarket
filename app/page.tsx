@@ -3,6 +3,8 @@ import Image from "next/image";
 import { getProducts } from "@/lib/products";
 import { games } from "@/lib/games";
 
+export const revalidate = 30;
+
 export default async function Home() {
   const products = await getProducts();
   const latestProducts = products.slice(0, 4);
@@ -65,6 +67,7 @@ export default async function Home() {
                     src={game.image}
                     alt={game.name}
                     fill
+                    sizes="64px"
                     className="object-contain rounded-xl"
                   />
                 </div>
@@ -93,6 +96,7 @@ export default async function Home() {
               <Link
                 key={product.id}
                 href={`/listing/${product.id}`}
+                prefetch={true}
               >
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 hover:border-cyan-500 transition">
                   <div className="relative h-32 rounded-xl overflow-hidden mb-4 bg-zinc-800">
@@ -101,7 +105,9 @@ export default async function Home() {
                         src={product.image_url}
                         alt={product.title}
                         fill
+                        sizes="(max-width: 768px) 50vw, 25vw"
                         className="object-cover"
+                        loading="lazy"
                       />
                     ) : (
                       <div className="w-full h-full bg-zinc-800" />

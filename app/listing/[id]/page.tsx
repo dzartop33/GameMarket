@@ -5,6 +5,8 @@ import ChatButton from "@/components/ChatButton";
 import Reviews from "@/components/Reviews";
 import OwnerActions from "@/components/OwnerActions";
 
+export const revalidate = 30;
+
 export default async function ListingPage({
   params,
 }: {
@@ -33,7 +35,9 @@ export default async function ListingPage({
                 src={product.image_url}
                 alt={product.title}
                 fill
+                sizes="(max-width: 768px) 100vw, 50vw"
                 className="object-cover"
+                priority
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-700" />

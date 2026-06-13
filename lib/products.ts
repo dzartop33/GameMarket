@@ -3,8 +3,9 @@ import { supabase } from "./supabase";
 export async function getProducts() {
   const { data, error } = await supabase
     .from("products")
-    .select("*")
-    .order("id", { ascending: false });
+    .select("id, title, game, category, price, seller, image_url, user_id")
+    .order("id", { ascending: false })
+    .limit(100);
 
   if (error) {
     console.error(error);
