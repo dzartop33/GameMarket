@@ -16,49 +16,56 @@ export default function Navbar() {
           <nav className="hidden md:flex items-center gap-1">
             <Link
               href="/"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
             >
               Главная
             </Link>
 
             <Link
               href="/catalog"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
             >
               Каталог
             </Link>
 
             <Link
               href="/sell"
-              className="px-4 py-2 rounded-lg text-cyan-400 hover:text-cyan-300 hover:bg-zinc-800 transition"
+              className="px-3 py-2 rounded-lg text-cyan-400 hover:text-cyan-300 hover:bg-zinc-800 transition text-sm"
             >
               + Продать
             </Link>
 
             <Link
-              href="/my-listings"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+              href="/deals"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
             >
-              Мои объявления
+              Сделки
+            </Link>
+
+            <Link
+              href="/wallet"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
+            >
+              💳 Кошелёк
+            </Link>
+
+            <Link
+              href="/my-listings"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
+            >
+              Объявления
             </Link>
 
             <Link
               href="/favorites"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
             >
               ❤️
             </Link>
 
             <Link
-              href="/sellers"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
-            >
-              Продавцы
-            </Link>
-
-            <Link
               href="/messages"
-              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+              className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm"
             >
               💬
             </Link>
