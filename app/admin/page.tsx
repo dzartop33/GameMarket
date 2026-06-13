@@ -46,6 +46,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState("deposits");
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
 
   const [users, setUsers] = useState<UserData[]>([]);
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
@@ -55,6 +56,7 @@ export default function AdminPage() {
 
   const [selectedUser, setSelectedUser] = useState("");
   const [amount, setAmount] = useState("");
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
 
   useEffect(() => {
     checkAdmin();
@@ -76,13 +78,13 @@ export default function AdminPage() {
       return;
     }
 
-    const { data: profile } = await supabase
+    const { data } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", session.user.id)
       .maybeSingle();
 
-    if (profile?.role !== "admin") {
+    if (data?.role !== "admin") {
       setLoading(false);
       return;
     }
@@ -92,33 +94,34 @@ export default function AdminPage() {
   }
 
   async function loadTab(tabName: string) {
+    setTabLoading(true);
+
     if (tabName === "deposits") {
       const { data } = await supabase
         .from("deposit_requests")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-
       setDeposits(data || []);
     }
 
     if (tabName === "users" || tabName === "balance") {
-      const [balancesResult, profilesResult] = await Promise.all([
+      const [b, p] = await Promise.all([
         supabase.from("balances").select("*").order("email"),
         supabase.from("profiles").select("id, username, is_blocked, role"),
       ]);
 
-      const merged = (balancesResult.data || []).map((u) => {
-        const profile = profilesResult.data?.find((p) => p.id === u.id);
-        return {
-          ...u,
-          username: profile?.username || "",
-          is_blocked: profile?.is_blocked || false,
-          role: profile?.role || "user",
-        };
-      });
-
-      setUsers(merged);
+      setUsers(
+        (b.data || []).map((u) => {
+          const prof = p.data?.find((x) => x.id === u.id);
+          return {
+            ...u,
+            username: prof?.username || "",
+            is_blocked: prof?.is_blocked || false,
+            role: prof?.role || "user",
+          };
+        })
+      );
     }
 
     if (tabName === "products") {
@@ -127,7 +130,6 @@ export default function AdminPage() {
         .select("id, title, seller, price, status, is_moderated")
         .order("id", { ascending: false })
         .limit(50);
-
       setProducts(data || []);
     }
 
@@ -137,20 +139,17 @@ export default function AdminPage() {
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-
       setDeals(data || []);
     }
 
     setTabLoaded((prev) => ({ ...prev, [tabName]: true }));
+    setTabLoading(false);
   }
 
   async function approveDeposit(deposit: DepositRequest) {
-    const netAmount = deposit.amount * 0.90;
+    setActionLoading(deposit.id);
 
-    await supabase
-      .from("deposit_requests")
-      .update({ status: "approved" })
-      .eq("id", deposit.id);
+    const netAmount = deposit.amount * 0.90;
 
     const { data: balanceData } = await supabase
       .from("balances")
@@ -161,33 +160,33 @@ export default function AdminPage() {
     const currentBalance = balanceData ? Number(balanceData.balance) : 0;
 
     await Promise.all([
-      supabase
-        .from("balances")
-        .update({ balance: currentBalance + netAmount })
-        .eq("id", deposit.user_id),
-      supabase.from("transactions").insert([
-        {
-          user_id: deposit.user_id,
-          type: "deposit",
-          amount: netAmount,
-          description: `Пополнение СБП (внесено ${deposit.amount} ₽, зачислено ${netAmount.toFixed(2)} ₽)`,
-        },
-      ]),
+      supabase.from("deposit_requests").update({ status: "approved" }).eq("id", deposit.id),
+      supabase.from("balances").update({ balance: currentBalance + netAmount }).eq("id", deposit.user_id),
+      supabase.from("transactions").insert([{
+        user_id: deposit.user_id,
+        type: "deposit",
+        amount: netAmount,
+        description: `СБП (${deposit.amount} ₽ → ${netAmount.toFixed(2)} ₽)`,
+      }]),
     ]);
 
-    alert(`Зачислено ${netAmount.toFixed(2)} ₽`);
-    setTabLoaded((prev) => ({ ...prev, deposits: false }));
-    loadTab("deposits");
+    setDeposits((prev) =>
+      prev.map((d) => (d.id === deposit.id ? { ...d, status: "approved" } : d))
+    );
+
+    setActionLoading(null);
   }
 
   async function rejectDeposit(id: number) {
-    await supabase
-      .from("deposit_requests")
-      .update({ status: "rejected" })
-      .eq("id", id);
+    setActionLoading(id);
 
-    setTabLoaded((prev) => ({ ...prev, deposits: false }));
-    loadTab("deposits");
+    await supabase.from("deposit_requests").update({ status: "rejected" }).eq("id", id);
+
+    setDeposits((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: "rejected" } : d))
+    );
+
+    setActionLoading(null);
   }
 
   async function addBalance() {
@@ -200,71 +199,44 @@ export default function AdminPage() {
     if (!user) return;
 
     await Promise.all([
-      supabase
-        .from("balances")
-        .update({ balance: user.balance + amountNum })
-        .eq("id", selectedUser),
-      supabase.from("transactions").insert([
-        {
-          user_id: selectedUser,
-          type: "deposit",
-          amount: amountNum,
-          description: "Пополнение администратором",
-        },
-      ]),
+      supabase.from("balances").update({ balance: user.balance + amountNum }).eq("id", selectedUser),
+      supabase.from("transactions").insert([{
+        user_id: selectedUser,
+        type: "deposit",
+        amount: amountNum,
+        description: "Пополнение администратором",
+      }]),
     ]);
 
+    setUsers((prev) =>
+      prev.map((u) => (u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u))
+    );
+
     setAmount("");
-    setTabLoaded((prev) => ({ ...prev, balance: false, users: false }));
-    loadTab("balance");
   }
 
   async function toggleBlock(userId: string, blocked: boolean) {
-    await supabase
-      .from("profiles")
-      .update({ is_blocked: !blocked })
-      .eq("id", userId);
-
-    setTabLoaded((prev) => ({ ...prev, users: false }));
-    loadTab("users");
+    await supabase.from("profiles").update({ is_blocked: !blocked }).eq("id", userId);
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_blocked: !blocked } : u)));
   }
 
   async function toggleRole(userId: string, role: string) {
     const newRole = role === "admin" ? "user" : "admin";
-    const confirmed = confirm(
-      newRole === "admin"
-        ? "Назначить администратором?"
-        : "Снять права администратора?"
-    );
+    if (!confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?")) return;
 
-    if (!confirmed) return;
-
-    await supabase
-      .from("profiles")
-      .update({ role: newRole })
-      .eq("id", userId);
-
-    setTabLoaded((prev) => ({ ...prev, users: false }));
-    loadTab("users");
+    await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
   }
 
   async function toggleModeration(id: number, current: boolean) {
-    await supabase
-      .from("products")
-      .update({ is_moderated: !current })
-      .eq("id", id);
-
-    setTabLoaded((prev) => ({ ...prev, products: false }));
-    loadTab("products");
+    await supabase.from("products").update({ is_moderated: !current }).eq("id", id);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, is_moderated: !current } : p)));
   }
 
   async function deleteProduct(id: number) {
     if (!confirm("Удалить?")) return;
-
     await supabase.from("products").delete().eq("id", id);
-
-    setTabLoaded((prev) => ({ ...prev, products: false }));
-    loadTab("products");
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
   if (loading) {
@@ -317,7 +289,7 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {!tabLoaded[tab] ? (
+        {tabLoading ? (
           <div className="flex justify-center py-12">
             <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
           </div>
@@ -332,17 +304,27 @@ export default function AdminPage() {
                     <div key={dep.id} className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${dep.status === "pending" ? "border-yellow-500/30" : "border-zinc-800"}`}>
                       <div>
                         <p className="font-bold">{dep.user_email}</p>
-                        <p className="text-zinc-400 text-sm">
-                          {dep.amount.toFixed(2)} ₽ → {(dep.amount * 0.9).toFixed(2)} ₽
-                        </p>
+                        <p className="text-zinc-400 text-sm">{dep.amount.toFixed(2)} ₽ → {(dep.amount * 0.9).toFixed(2)} ₽</p>
                         <p className="text-zinc-500 text-xs">#{dep.id} · {new Date(dep.created_at).toLocaleString("ru")}</p>
                         {dep.comment && <p className="text-cyan-400 text-xs mt-1">{dep.comment}</p>}
                       </div>
                       <div className="flex gap-2">
                         {dep.status === "pending" ? (
                           <>
-                            <button onClick={() => approveDeposit(dep)} className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold">✓</button>
-                            <button onClick={() => rejectDeposit(dep.id)} className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm">✕</button>
+                            <button
+                              onClick={() => approveDeposit(dep)}
+                              disabled={actionLoading === dep.id}
+                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
+                            >
+                              {actionLoading === dep.id ? "..." : "✓"}
+                            </button>
+                            <button
+                              onClick={() => rejectDeposit(dep.id)}
+                              disabled={actionLoading === dep.id}
+                              className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                            >
+                              ✕
+                            </button>
                           </>
                         ) : (
                           <span className="text-sm">{dep.status === "approved" ? "✅" : "❌"}</span>
@@ -382,17 +364,17 @@ export default function AdminPage() {
 
             {tab === "products" && (
               <div className="space-y-3">
-                {products.map((product) => (
-                  <div key={product.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                {products.map((p) => (
+                  <div key={p.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                     <div>
-                      <p className="font-bold">{product.title}</p>
-                      <p className="text-zinc-500 text-xs">{product.seller} · {product.price}</p>
+                      <p className="font-bold">{p.title}</p>
+                      <p className="text-zinc-500 text-xs">{p.seller} · {p.price}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => toggleModeration(product.id, product.is_moderated)} className={`px-3 py-1 rounded-lg text-xs ${product.is_moderated ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
-                        {product.is_moderated ? "Скрыть" : "Показать"}
+                      <button onClick={() => toggleModeration(p.id, p.is_moderated)} className={`px-3 py-1 rounded-lg text-xs ${p.is_moderated ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
+                        {p.is_moderated ? "Скрыть" : "Показать"}
                       </button>
-                      <button onClick={() => deleteProduct(product.id)} className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400">Удалить</button>
+                      <button onClick={() => deleteProduct(p.id)} className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400">Удалить</button>
                     </div>
                   </div>
                 ))}
@@ -401,18 +383,16 @@ export default function AdminPage() {
 
             {tab === "deals" && (
               <div className="space-y-3">
-                {deals.length === 0 ? (
-                  <p className="text-zinc-400">Сделок нет</p>
-                ) : (
-                  deals.map((deal) => (
-                    <div key={deal.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                {deals.length === 0 ? <p className="text-zinc-400">Сделок нет</p> : (
+                  deals.map((d) => (
+                    <div key={d.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                       <div>
-                        <p className="font-bold">{deal.product_title}</p>
-                        <p className="text-zinc-500 text-xs">{deal.buyer_email} → {deal.seller_email}</p>
+                        <p className="font-bold">{d.product_title}</p>
+                        <p className="text-zinc-500 text-xs">{d.buyer_email} → {d.seller_email}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-bold">{deal.price}</p>
-                        <p className="text-xs">{deal.status}</p>
+                        <p className="font-bold">{d.price}</p>
+                        <p className="text-xs">{d.status}</p>
                       </div>
                     </div>
                   ))
@@ -425,13 +405,13 @@ export default function AdminPage() {
                 <h2 className="text-xl font-bold mb-4">Пополнить вручную</h2>
                 <div className="flex flex-col md:flex-row gap-3">
                   <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4">
-                    <option value="">Выберите пользователя</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>{user.email} ({user.balance.toFixed(2)} ₽)</option>
+                    <option value="">Выберите</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.email} ({u.balance.toFixed(2)} ₽)</option>
                     ))}
                   </select>
                   <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Сумма" className="w-40 bg-zinc-800 border border-zinc-700 rounded-xl p-4" />
-                  <button onClick={addBalance} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold">Пополнить</button>
+                  <button onClick={addBalance} className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold">+</button>
                 </div>
               </div>
             )}
