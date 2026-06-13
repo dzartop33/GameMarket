@@ -36,28 +36,28 @@ export default function AuthButtons() {
     }
 
     const user = session.user;
-
-    setUsername(user.email?.split("@")[0] || user.email || null);
+    setUsername(user.email?.split("@")[0] || "user");
     setLoaded(true);
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", user.id)
-      .maybeSingle();
+    const [profileResult, balanceResult] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("balances")
+        .select("balance")
+        .eq("id", user.id)
+        .maybeSingle(),
+    ]);
 
-    if (profile?.username) {
-      setUsername(profile.username);
+    if (profileResult.data?.username) {
+      setUsername(profileResult.data.username);
     }
 
-    const { data: balanceData } = await supabase
-      .from("balances")
-      .select("balance")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (balanceData) {
-      setBalance(Number(balanceData.balance));
+    if (balanceResult.data) {
+      setBalance(Number(balanceResult.data.balance));
     }
   }
 
@@ -90,7 +90,7 @@ export default function AuthButtons() {
             {username.charAt(0).toUpperCase()}
           </div>
 
-          <span className="text-sm max-w-[100px] truncate">
+          <span className="text-sm max-w-[100px] truncate hidden sm:block">
             {username}
           </span>
         </Link>
