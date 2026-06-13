@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+
+let cachedUserId: string | null = null;
 
 export default function FavoriteButton({
   productId,
@@ -10,37 +12,42 @@ export default function FavoriteButton({
 }) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    checkFavorite();
-  }, []);
+  const checkFavorite = useCallback(async () => {
+    if (!cachedUserId) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-  async function checkFavorite() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      cachedUserId = session?.user?.id || null;
+    }
 
-    if (!session?.user) return;
+    if (!cachedUserId) {
+      setReady(true);
+      return;
+    }
 
     const { data } = await supabase
       .from("favorites")
       .select("id")
-      .eq("user_id", session.user.id)
+      .eq("user_id", cachedUserId)
       .eq("product_id", productId)
       .maybeSingle();
 
     setIsFavorite(!!data);
-  }
+    setReady(true);
+  }, [productId]);
+
+  useEffect(() => {
+    checkFavorite();
+  }, [checkFavorite]);
 
   async function toggleFavorite(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.user) {
+    if (!cachedUserId) {
       alert("Необходимо войти в аккаунт");
       return;
     }
@@ -51,14 +58,14 @@ export default function FavoriteButton({
       await supabase
         .from("favorites")
         .delete()
-        .eq("user_id", session.user.id)
+        .eq("user_id", cachedUserId)
         .eq("product_id", productId);
 
       setIsFavorite(false);
     } else {
       await supabase.from("favorites").insert([
         {
-          user_id: session.user.id,
+          user_id: cachedUserId,
           product_id: productId,
         },
       ]);
@@ -68,6 +75,8 @@ export default function FavoriteButton({
 
     setLoading(false);
   }
+
+  if (!ready) return null;
 
   return (
     <button

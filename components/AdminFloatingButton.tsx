@@ -8,26 +8,24 @@ export default function AdminFloatingButton() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    checkAdmin();
-  }, []);
+    async function check() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-  async function checkAdmin() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      if (!session?.user) return;
 
-    if (!session?.user) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .maybeSingle();
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    if (profile?.role === "admin") {
-      setIsAdmin(true);
+      setIsAdmin(data?.role === "admin");
     }
-  }
+
+    check();
+  }, []);
 
   if (!isAdmin) return null;
 

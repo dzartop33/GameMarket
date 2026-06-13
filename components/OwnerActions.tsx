@@ -13,53 +13,39 @@ export default function OwnerActions({
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
-    checkOwner();
-  }, []);
+    async function check() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-  async function checkOwner() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.user?.id === ownerId) {
-      setIsOwner(true);
+      setIsOwner(session?.user?.id === ownerId);
     }
-  }
+
+    check();
+  }, [ownerId]);
+
+  if (!isOwner) return null;
 
   async function deleteProduct() {
     const confirmed = confirm("Удалить объявление?");
-
     if (!confirmed) return;
 
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", productId);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    await supabase.from("products").delete().eq("id", productId);
     window.location.assign("/my-listings");
   }
-
-  if (!isOwner) return null;
 
   return (
     <div className="flex gap-3 mt-4">
       <button
-        onClick={() =>
-          window.location.assign(`/edit/${productId}`)
-        }
-        className="flex-1 px-6 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition font-semibold"
+        onClick={() => window.location.assign(`/edit/${productId}`)}
+        className="flex-1 px-6 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition font-semibold text-sm"
       >
         ✏️ Редактировать
       </button>
 
       <button
         onClick={deleteProduct}
-        className="px-6 py-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition font-semibold"
+        className="px-6 py-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition font-semibold text-sm"
       >
         🗑️ Удалить
       </button>

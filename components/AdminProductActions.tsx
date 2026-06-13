@@ -1,6 +1,6 @@
 "use client";
 
-import { useAdmin } from "@/hooks/useAdmin";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function AdminProductActions({
@@ -8,9 +8,29 @@ export default function AdminProductActions({
 }: {
   productId: number;
 }) {
-  const { isAdmin, loaded } = useAdmin();
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  if (!loaded || !isAdmin) return null;
+  useEffect(() => {
+    async function check() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) return;
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      setIsAdmin(data?.role === "admin");
+    }
+
+    check();
+  }, []);
+
+  if (!isAdmin) return null;
 
   async function handleDelete() {
     const confirmed = confirm("Удалить объявление? (Админ)");
@@ -31,9 +51,7 @@ export default function AdminProductActions({
 
   return (
     <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-      <p className="text-red-400 text-xs font-bold mb-3">
-        👑 Админ-действия
-      </p>
+      <p className="text-red-400 text-xs font-bold mb-3">👑 Админ</p>
 
       <div className="flex gap-2">
         <button

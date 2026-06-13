@@ -58,9 +58,9 @@ export default function BuyButton({
 
     if (!buyerBalance || Number(buyerBalance.balance) < priceNum) {
       alert(
-        `Недостаточно средств.\n\nВаш баланс: ${
+        `Недостаточно средств.\n\nБаланс: ${
           buyerBalance ? Number(buyerBalance.balance).toFixed(2) : "0.00"
-        } ₽\nЦена: ${priceNum.toFixed(2)} ₽\n\nПополните баланс в кошельке.`
+        } ₽\nЦена: ${priceNum.toFixed(2)} ₽`
       );
       setLoading(false);
       return;
@@ -75,7 +75,7 @@ export default function BuyButton({
       .maybeSingle();
 
     if (existingDeal) {
-      alert("У вас уже есть активная сделка по этому товару");
+      alert("У вас уже есть активная сделка");
       setLoading(false);
       return;
     }
@@ -92,39 +92,41 @@ export default function BuyButton({
       return;
     }
 
-    await supabase.from("transactions").insert([
-      {
-        user_id: session.user.id,
-        type: "purchase",
-        amount: priceNum,
-        description: `Покупка: ${productTitle}`,
-      },
-    ]);
+    const insertPromises = [
+      supabase.from("transactions").insert([
+        {
+          user_id: session.user.id,
+          type: "purchase",
+          amount: priceNum,
+          description: `Покупка: ${productTitle}`,
+        },
+      ]),
+      supabase.from("transactions").insert([
+        {
+          user_id: sellerId,
+          type: "sale",
+          amount: priceNum,
+          description: `Продажа: ${productTitle}`,
+        },
+      ]),
+      supabase.from("deals").insert([
+        {
+          product_id: productId,
+          buyer_id: session.user.id,
+          seller_id: sellerId,
+          buyer_email: session.user.email,
+          seller_email: sellerEmail,
+          product_title: productTitle,
+          price: price,
+          status: "paid",
+        },
+      ]),
+    ];
 
-    await supabase.from("transactions").insert([
-      {
-        user_id: sellerId,
-        type: "sale",
-        amount: priceNum,
-        description: `Продажа: ${productTitle}`,
-      },
-    ]);
-
-    await supabase.from("deals").insert([
-      {
-        product_id: productId,
-        buyer_id: session.user.id,
-        seller_id: sellerId,
-        buyer_email: session.user.email,
-        seller_email: sellerEmail,
-        product_title: productTitle,
-        price: price,
-        status: "paid",
-      },
-    ]);
+    await Promise.all(insertPromises);
 
     setLoading(false);
-    alert("Покупка успешна! Продавец получит уведомление.");
+    alert("Покупка успешна!");
     window.location.assign("/deals");
   }
 
