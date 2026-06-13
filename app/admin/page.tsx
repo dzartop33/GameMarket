@@ -18,6 +18,7 @@ type DepositRequest = {
   amount: number;
   status: string;
   payment_method: string;
+  comment: string;
   created_at: string;
 };
 
@@ -40,7 +41,7 @@ type Deal = {
   created_at: string;
 };
 
-const ADMIN_EMAILS = ["dzartop22@gmail.com"];
+const ADMIN_EMAILS = ["dzartop33@gmail.com"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState("deposits");
@@ -120,28 +121,36 @@ export default function AdminPage() {
   }
 
   async function approveDeposit(deposit: DepositRequest) {
+    const netAmount = deposit.amount * 0.90;
+
     await supabase
       .from("deposit_requests")
       .update({ status: "approved" })
       .eq("id", deposit.id);
 
-    const user = users.find((u) => u.id === deposit.user_id);
-    const currentBalance = user ? user.balance : 0;
+    const { data: balanceData } = await supabase
+      .from("balances")
+      .select("balance")
+      .eq("id", deposit.user_id)
+      .single();
+
+    const currentBalance = balanceData ? Number(balanceData.balance) : 0;
 
     await supabase
       .from("balances")
-      .update({ balance: currentBalance + deposit.amount })
+      .update({ balance: currentBalance + netAmount })
       .eq("id", deposit.user_id);
 
     await supabase.from("transactions").insert([
       {
         user_id: deposit.user_id,
         type: "deposit",
-        amount: deposit.amount,
-        description: `Пополнение (${deposit.payment_method})`,
+        amount: netAmount,
+        description: `Пополнение через СБП (внесено ${deposit.amount} ₽, зачислено ${netAmount.toFixed(2)} ₽)`,
       },
     ]);
 
+    alert(`Заявка #${deposit.id} одобрена. Пользователю зачислено ${netAmount.toFixed(2)} ₽`);
     loadAll();
   }
 
@@ -179,6 +188,7 @@ export default function AdminPage() {
 
     setAmount("");
     loadAll();
+    alert(`Баланс пополнен на ${amountNum} ₽`);
   }
 
   async function toggleBlock(userId: string, currentlyBlocked: boolean) {
@@ -231,6 +241,8 @@ export default function AdminPage() {
     { id: "balance", label: "💳 Баланс" },
   ];
 
+  const pendingCount = deposits.filter((d) => d.status === "pending").length;
+
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-12">
@@ -243,13 +255,18 @@ export default function AdminPage() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold ${
+              className={`px-4 py-2 rounded-xl text-sm font-semibold relative ${
                 tab === t.id
                   ? "bg-cyan-500 text-black"
                   : "bg-zinc-800 hover:bg-zinc-700"
               } transition`}
             >
               {t.label}
+              {t.id === "deposits" && pendingCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                  {pendingCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -257,48 +274,63 @@ export default function AdminPage() {
         {tab === "deposits" && (
           <div className="space-y-3">
             <h2 className="text-xl font-bold mb-4">
-              Заявки на пополнение ({deposits.filter((d) => d.status === "pending").length} ожидает)
+              Заявки на пополнение ({pendingCount} ожидает)
             </h2>
 
-            {deposits.map((dep) => (
-              <div
-                key={dep.id}
-                className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                  dep.status === "pending" ? "border-yellow-500/30" : "border-zinc-800"
-                }`}
-              >
-                <div>
-                  <p className="font-bold">{dep.user_email}</p>
-                  <p className="text-zinc-400 text-sm">
-                    {dep.amount.toFixed(2)} ₽ · {dep.payment_method} ·{" "}
-                    {new Date(dep.created_at).toLocaleString("ru")}
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  {dep.status === "pending" ? (
-                    <>
-                      <button
-                        onClick={() => approveDeposit(dep)}
-                        className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold"
-                      >
-                        ✓ Одобрить
-                      </button>
-                      <button
-                        onClick={() => rejectDeposit(dep.id)}
-                        className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm"
-                      >
-                        ✕ Отклонить
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-sm">
-                      {dep.status === "approved" ? "✅ Одобрено" : "❌ Отклонено"}
-                    </span>
-                  )}
-                </div>
+            {deposits.length === 0 ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+                <p className="text-zinc-400">Заявок нет</p>
               </div>
-            ))}
+            ) : (
+              deposits.map((dep) => (
+                <div
+                  key={dep.id}
+                  className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                    dep.status === "pending"
+                      ? "border-yellow-500/30"
+                      : "border-zinc-800"
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold">{dep.user_email}</p>
+                    <p className="text-zinc-400 text-sm">
+                      Внесено: {dep.amount.toFixed(2)} ₽ → Зачисление: {(dep.amount * 0.9).toFixed(2)} ₽
+                    </p>
+                    <p className="text-zinc-500 text-xs">
+                      #{dep.id} · {dep.payment_method} · {new Date(dep.created_at).toLocaleString("ru")}
+                    </p>
+                    {dep.comment && (
+                      <p className="text-cyan-400 text-xs mt-1">
+                        {dep.comment}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    {dep.status === "pending" ? (
+                      <>
+                        <button
+                          onClick={() => approveDeposit(dep)}
+                          className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold"
+                        >
+                          ✓ Одобрить
+                        </button>
+                        <button
+                          onClick={() => rejectDeposit(dep.id)}
+                          className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm"
+                        >
+                          ✕ Отклонить
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-sm">
+                        {dep.status === "approved" ? "✅ Одобрено" : "❌ Отклонено"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
 
@@ -394,26 +426,35 @@ export default function AdminPage() {
               Сделки ({deals.length})
             </h2>
 
-            {deals.map((deal) => (
-              <div
-                key={deal.id}
-                className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold">{deal.product_title}</p>
-                    <p className="text-zinc-500 text-xs">
-                      {deal.buyer_email} → {deal.seller_email}
-                    </p>
-                  </div>
+            {deals.length === 0 ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+                <p className="text-zinc-400">Сделок нет</p>
+              </div>
+            ) : (
+              deals.map((deal) => (
+                <div
+                  key={deal.id}
+                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold">{deal.product_title}</p>
+                      <p className="text-zinc-500 text-xs">
+                        {deal.buyer_email} → {deal.seller_email}
+                      </p>
+                      <p className="text-zinc-500 text-xs">
+                        {new Date(deal.created_at).toLocaleString("ru")}
+                      </p>
+                    </div>
 
-                  <div className="text-right">
-                    <p className="font-bold">{deal.price}</p>
-                    <p className="text-xs">{deal.status}</p>
+                    <div className="text-right">
+                      <p className="font-bold">{deal.price}</p>
+                      <p className="text-xs">{deal.status}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
 
