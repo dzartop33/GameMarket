@@ -43,6 +43,13 @@ export default function Navbar() {
             </Link>
 
             <Link
+              href="/favorites"
+              className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
+            >
+              ❤️
+            </Link>
+
+            <Link
               href="/sellers"
               className="px-4 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
             >

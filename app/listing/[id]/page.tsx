@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { getProductById } from "@/lib/products";
 import ChatButton from "@/components/ChatButton";
+import Reviews from "@/components/Reviews";
 
 export default async function ListingPage({
   params,
@@ -85,6 +86,10 @@ export default async function ListingPage({
             </div>
           </div>
         </div>
+
+        {product.user_id && (
+          <Reviews sellerId={product.user_id} />
+        )}
       </div>
     </main>
   );
