@@ -4,6 +4,29 @@ import { useState } from "react";
 import Link from "next/link";
 import AuthButtons from "./AuthButtons";
 
+const navLinks = [
+  { href: "/", label: "Главная" },
+  { href: "/catalog", label: "Каталог" },
+  { href: "/sell", label: "+ Продать", accent: true },
+  { href: "/deals", label: "Сделки" },
+  { href: "/wallet", label: "💳" },
+  { href: "/my-listings", label: "Объявления" },
+  { href: "/favorites", label: "❤️" },
+  { href: "/messages", label: "💬" },
+];
+
+const mobileLinks = [
+  { href: "/", label: "Главная" },
+  { href: "/catalog", label: "Каталог" },
+  { href: "/sell", label: "+ Продать", accent: true },
+  { href: "/deals", label: "Сделки" },
+  { href: "/wallet", label: "💳 Кошелёк" },
+  { href: "/my-listings", label: "Мои объявления" },
+  { href: "/favorites", label: "❤️ Избранное" },
+  { href: "/messages", label: "💬 Сообщения" },
+  { href: "/support", label: "Поддержка" },
+];
+
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -19,30 +42,20 @@ export default function Navbar() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
-            <Link href="/" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              Главная
-            </Link>
-            <Link href="/catalog" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              Каталог
-            </Link>
-            <Link href="/sell" className="px-3 py-2 rounded-lg text-cyan-400 hover:text-cyan-300 hover:bg-zinc-800 transition text-sm">
-              + Продать
-            </Link>
-            <Link href="/deals" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              Сделки
-            </Link>
-            <Link href="/wallet" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              💳
-            </Link>
-            <Link href="/my-listings" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              Объявления
-            </Link>
-            <Link href="/favorites" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              ❤️
-            </Link>
-            <Link href="/messages" className="px-3 py-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition text-sm">
-              💬
-            </Link>
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                prefetch={true}
+                className={`px-3 py-2 rounded-lg text-sm transition ${
+                  link.accent
+                    ? "text-cyan-400 hover:text-cyan-300 hover:bg-zinc-800"
+                    : "text-zinc-300 hover:text-white hover:bg-zinc-800"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
 
           <div className="hidden md:block">
@@ -51,7 +64,7 @@ export default function Navbar() {
 
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden text-2xl"
+            className="md:hidden text-2xl w-10 h-10 flex items-center justify-center"
           >
             {isOpen ? "✕" : "☰"}
           </button>
@@ -60,36 +73,23 @@ export default function Navbar() {
 
       {isOpen && (
         <div className="md:hidden border-t border-zinc-800 bg-zinc-950 px-6 py-4">
-          <nav className="flex flex-col gap-2">
-            <Link href="/" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              Главная
-            </Link>
-            <Link href="/catalog" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              Каталог
-            </Link>
-            <Link href="/sell" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-cyan-400 hover:bg-zinc-800 transition">
-              + Продать
-            </Link>
-            <Link href="/deals" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              Сделки
-            </Link>
-            <Link href="/wallet" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              💳 Кошелёк
-            </Link>
-            <Link href="/my-listings" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              Мои объявления
-            </Link>
-            <Link href="/favorites" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              ❤️ Избранное
-            </Link>
-            <Link href="/messages" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              💬 Сообщения
-            </Link>
-            <Link href="/support" onClick={() => setIsOpen(false)} className="px-3 py-3 rounded-lg text-zinc-300 hover:bg-zinc-800 transition">
-              Поддержка
-            </Link>
+          <nav className="flex flex-col gap-1">
+            {mobileLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setIsOpen(false)}
+                className={`px-4 py-3 rounded-lg transition ${
+                  link.accent
+                    ? "text-cyan-400 hover:bg-zinc-800"
+                    : "text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
 
-            <div className="pt-4 border-t border-zinc-800">
+            <div className="pt-4 mt-2 border-t border-zinc-800">
               <AuthButtons />
             </div>
           </nav>
