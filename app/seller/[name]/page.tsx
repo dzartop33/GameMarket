@@ -3,6 +3,9 @@ import Image from "next/image";
 import { getProducts } from "@/lib/products";
 import { supabase } from "@/lib/supabase";
 import Reviews from "@/components/Reviews";
+import AdminUserActions from "@/components/AdminUserActions";
+
+export const dynamic = "force-dynamic";
 
 export default async function SellerPage({
   params,
@@ -46,12 +49,12 @@ export default async function SellerPage({
       <div className="max-w-6xl mx-auto px-6 py-12">
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
           <div className="flex items-center gap-6">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500" />
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-3xl font-bold text-black">
+              {decodedName.charAt(0).toUpperCase()}
+            </div>
 
             <div>
-              <h1 className="text-4xl font-bold">
-                {decodedName}
-              </h1>
+              <h1 className="text-4xl font-bold">{decodedName}</h1>
 
               <p className="text-cyan-400 mt-2">
                 ★ {avgRating} ({reviewCount} отзывов)
@@ -62,6 +65,13 @@ export default async function SellerPage({
               </p>
             </div>
           </div>
+
+          {sellerId && (
+            <AdminUserActions
+              sellerId={sellerId}
+              sellerEmail={decodedName}
+            />
+          )}
         </div>
 
         <h2 className="text-2xl font-bold mt-12 mb-6">
@@ -75,10 +85,7 @@ export default async function SellerPage({
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {sellerProducts.map((product: any) => (
-              <Link
-                key={product.id}
-                href={`/listing/${product.id}`}
-              >
+              <Link key={product.id} href={`/listing/${product.id}`}>
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-cyan-500/50 transition">
                   <div className="relative h-32 bg-zinc-800">
                     {product.image_url ? (
@@ -86,6 +93,7 @@ export default async function SellerPage({
                         src={product.image_url}
                         alt={product.title}
                         fill
+                        sizes="25vw"
                         className="object-cover"
                       />
                     ) : (
@@ -94,13 +102,9 @@ export default async function SellerPage({
                   </div>
 
                   <div className="p-4">
-                    <h3 className="font-semibold">
-                      {product.title}
-                    </h3>
+                    <h3 className="font-semibold text-sm">{product.title}</h3>
 
-                    <p className="text-cyan-400 mt-2">
-                      {product.price}
-                    </p>
+                    <p className="text-cyan-400 mt-2">{product.price}</p>
                   </div>
                 </div>
               </Link>

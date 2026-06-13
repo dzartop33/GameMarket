@@ -2,8 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { getProductById } from "@/lib/products";
 import ChatButton from "@/components/ChatButton";
+import BuyButton from "@/components/BuyButton";
 import Reviews from "@/components/Reviews";
 import OwnerActions from "@/components/OwnerActions";
+import AdminProductActions from "@/components/AdminProductActions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +21,7 @@ export default async function ListingPage({
     return (
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-4xl font-bold">
-            Товар не найден
-          </h1>
+          <h1 className="text-4xl font-bold">Товар не найден</h1>
 
           <Link
             href="/catalog"
@@ -55,9 +55,7 @@ export default async function ListingPage({
 
           <div>
             <div className="flex items-center gap-3">
-              <p className="text-cyan-400 text-sm">
-                {product.game}
-              </p>
+              <p className="text-cyan-400 text-sm">{product.game}</p>
 
               {product.category && (
                 <span className="bg-zinc-800 text-xs px-3 py-1 rounded-full">
@@ -66,9 +64,7 @@ export default async function ListingPage({
               )}
             </div>
 
-            <h1 className="text-3xl font-bold mt-3">
-              {product.title}
-            </h1>
+            <h1 className="text-3xl font-bold mt-3">{product.title}</h1>
 
             <div className="mt-4">
               <Link
@@ -85,14 +81,16 @@ export default async function ListingPage({
             </p>
 
             <div className="mt-8 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <p className="text-4xl font-bold">
-                {product.price}
-              </p>
+              <p className="text-4xl font-bold">{product.price}</p>
 
               <div className="flex gap-3 mt-6">
-                <button className="flex-1 px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold hover:opacity-90 transition">
-                  Купить сейчас
-                </button>
+                <BuyButton
+                  productId={product.id}
+                  sellerId={product.user_id}
+                  sellerEmail={product.seller}
+                  productTitle={product.title}
+                  price={product.price}
+                />
 
                 <ChatButton
                   sellerId={product.user_id}
@@ -107,13 +105,13 @@ export default async function ListingPage({
                   ownerId={product.user_id}
                 />
               )}
+
+              <AdminProductActions productId={product.id} />
             </div>
           </div>
         </div>
 
-        {product.user_id && (
-          <Reviews sellerId={product.user_id} />
-        )}
+        {product.user_id && <Reviews sellerId={product.user_id} />}
       </div>
     </main>
   );
