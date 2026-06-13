@@ -10,6 +10,7 @@ type Product = {
   title: string;
   game: string;
   price: string;
+  status?: string;
   image_url?: string | null;
 };
 
@@ -23,10 +24,10 @@ export default function MyListingsPage() {
 
   async function loadProducts() {
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (!user) {
+    if (!session?.user) {
       setLoading(false);
       return;
     }
@@ -34,37 +35,40 @@ export default function MyListingsPage() {
     const { data } = await supabase
       .from("products")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", session.user.id)
       .order("id", { ascending: false });
 
     setProducts(data || []);
     setLoading(false);
   }
 
-  async function deleteProduct(id: number) {
-    const confirmed = confirm("Удалить объявление?");
+  async function toggleStatus(id: number, currentStatus: string) {
+    const newStatus = currentStatus === "active" ? "sold" : "active";
 
-    if (!confirmed) return;
-
-    const { error } = await supabase
+    await supabase
       .from("products")
-      .delete()
+      .update({ status: newStatus })
       .eq("id", id);
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
     setProducts((prev) =>
-      prev.filter((item) => item.id !== id)
+      prev.map((p) =>
+        p.id === id ? { ...p, status: newStatus } : p
+      )
     );
+  }
+
+  async function deleteProduct(id: number) {
+    const confirmed = confirm("Удалить объявление?");
+    if (!confirmed) return;
+
+    await supabase.from("products").delete().eq("id", id);
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-white p-10">
-        Загрузка...
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </main>
     );
   }
@@ -72,63 +76,102 @@ export default function MyListingsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-7xl mx-auto px-6 py-12">
-        <h1 className="text-4xl font-bold mb-8">
-          Мои объявления
-        </h1>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-4xl font-bold">
+              Мои объявления
+            </h1>
+            <p className="text-zinc-400 mt-1">
+              Всего: {products.length}
+            </p>
+          </div>
+
+          <Link
+            href="/sell"
+            className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-5 py-3 rounded-xl font-semibold text-sm"
+          >
+            + Создать
+          </Link>
+        </div>
 
         {products.length === 0 ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-            У вас пока нет объявлений.
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
+            <p className="text-zinc-400">У вас пока нет объявлений</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5"
-              >
-                <div className="relative h-32 rounded-xl overflow-hidden mb-4 bg-zinc-800">
-                  {product.image_url ? (
-                    <Image
-                      src={product.image_url}
-                      alt={product.title}
-                      fill
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-zinc-800" />
-                  )}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {products.map((product) => {
+              const status = product.status || "active";
+              const isSold = status === "sold";
+
+              return (
+                <div
+                  key={product.id}
+                  className={`bg-zinc-900 border rounded-2xl overflow-hidden ${
+                    isSold ? "border-red-500/30 opacity-70" : "border-zinc-800"
+                  }`}
+                >
+                  <div className="relative h-32 bg-zinc-800">
+                    {product.image_url ? (
+                      <Image
+                        src={product.image_url}
+                        alt={product.title}
+                        fill
+                        sizes="25vw"
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-700" />
+                    )}
+
+                    {isSold && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                          Продано
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    <h3 className="font-semibold text-sm line-clamp-1">
+                      {product.title}
+                    </h3>
+
+                    <p className="text-cyan-400 mt-2 font-bold">
+                      {product.price}
+                    </p>
+
+                    <div className="flex gap-2 mt-3">
+                      <Link
+                        href={`/listing/${product.id}`}
+                        className="flex-1 bg-zinc-800 text-center py-2 rounded-lg text-xs hover:bg-zinc-700 transition"
+                      >
+                        Открыть
+                      </Link>
+
+                      <button
+                        onClick={() => toggleStatus(product.id, status)}
+                        className={`px-3 py-2 rounded-lg text-xs ${
+                          isSold
+                            ? "bg-green-500/20 text-green-400"
+                            : "bg-yellow-500/20 text-yellow-400"
+                        }`}
+                      >
+                        {isSold ? "↩ Активно" : "✓ Продано"}
+                      </button>
+
+                      <button
+                        onClick={() => deleteProduct(product.id)}
+                        className="px-3 py-2 rounded-lg text-xs bg-red-500/20 text-red-400"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-                <h3 className="font-semibold">
-                  {product.title}
-                </h3>
-
-                <p className="text-zinc-400 mt-2">
-                  {product.game}
-                </p>
-
-                <p className="text-cyan-400 mt-3">
-                  {product.price}
-                </p>
-
-                <div className="flex gap-2 mt-4">
-                  <Link
-                    href={`/listing/${product.id}`}
-                    className="flex-1 bg-cyan-500 text-black text-center py-2 rounded-xl"
-                  >
-                    Открыть
-                  </Link>
-
-                  <button
-                    onClick={() => deleteProduct(product.id)}
-                    className="bg-red-500 px-4 rounded-xl"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 type Transaction = {
@@ -83,27 +84,24 @@ export default function WalletPage() {
         </h1>
 
         <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl p-8 mb-8">
-          <p className="text-zinc-400">
-            Ваш баланс
-          </p>
+          <p className="text-zinc-400">Ваш баланс</p>
 
           <p className="text-5xl font-bold mt-2">
             {balance.toFixed(2)} ₽
           </p>
 
           <div className="flex gap-3 mt-6">
-            <button className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-3 rounded-xl font-bold">
+            <Link
+              href="/deposit"
+              className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-3 rounded-xl font-bold"
+            >
               Пополнить
-            </button>
+            </Link>
 
             <button className="border border-zinc-700 px-6 py-3 rounded-xl hover:border-cyan-500 transition">
               Вывести
             </button>
           </div>
-
-          <p className="text-zinc-500 text-xs mt-4">
-            Для пополнения и вывода обратитесь в поддержку
-          </p>
         </div>
 
         <h2 className="text-2xl font-bold mb-4">
@@ -112,9 +110,7 @@ export default function WalletPage() {
 
         {transactions.length === 0 ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
-            <p className="text-zinc-400">
-              Операций пока нет
-            </p>
+            <p className="text-zinc-400">Операций пока нет</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -127,11 +123,9 @@ export default function WalletPage() {
                   <p className="font-semibold text-sm">
                     {typeLabels[tx.type] || tx.type}
                   </p>
-
                   <p className="text-zinc-400 text-xs mt-1">
                     {tx.description}
                   </p>
-
                   <p className="text-zinc-500 text-xs mt-1">
                     {new Date(tx.created_at).toLocaleString("ru")}
                   </p>
