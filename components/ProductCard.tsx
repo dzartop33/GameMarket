@@ -9,7 +9,6 @@ type Product = {
   category?: string;
   price: string;
   seller: string;
-  rating?: number;
   image_url?: string;
 };
 
@@ -22,11 +21,8 @@ export default function ProductCard({
     <div className="relative">
       <FavoriteButton productId={product.id} />
 
-      <Link
-        href={`/listing/${product.id}`}
-        prefetch={true}
-      >
-        <div className="group bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-300">
+      <Link href={`/listing/${product.id}`} prefetch={true}>
+        <div className="group bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-200">
           <div className="relative h-44 bg-zinc-800">
             {product.image_url ? (
               <Image
@@ -34,7 +30,7 @@ export default function ProductCard({
                 alt={product.title}
                 fill
                 sizes="(max-width: 768px) 50vw, 25vw"
-                className="object-cover group-hover:scale-105 transition-transform duration-300"
+                className="object-cover group-hover:scale-105 transition-transform duration-200"
                 loading="lazy"
               />
             ) : (
@@ -53,16 +49,16 @@ export default function ProductCard({
               {product.game}
             </p>
 
-            <h3 className="font-semibold mt-1 line-clamp-2">
+            <h3 className="font-semibold mt-1 line-clamp-2 text-sm">
               {product.title}
             </h3>
 
-            <div className="flex items-center justify-between mt-4">
-              <p className="text-xl font-bold">
+            <div className="flex items-center justify-between mt-3">
+              <p className="text-lg font-bold">
                 {product.price}
               </p>
 
-              <p className="text-zinc-500 text-xs truncate max-w-[100px]">
+              <p className="text-zinc-500 text-xs truncate max-w-[80px]">
                 {product.seller}
               </p>
             </div>
