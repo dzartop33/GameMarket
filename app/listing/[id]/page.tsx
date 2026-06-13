@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getProductById } from "@/lib/products";
 import ChatButton from "@/components/ChatButton";
 import Reviews from "@/components/Reviews";
+import OwnerActions from "@/components/OwnerActions";
 
 export default async function ListingPage({
   params,
@@ -83,6 +84,13 @@ export default async function ListingPage({
                   productId={product.id}
                 />
               </div>
+
+              {product.user_id && (
+                <OwnerActions
+                  productId={product.id}
+                  ownerId={product.user_id}
+                />
+              )}
             </div>
           </div>
         </div>

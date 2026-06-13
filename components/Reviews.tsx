@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 type Review = {
   id: number;
+  author_id: string;
   author_username: string;
   rating: number;
   comment: string;
@@ -20,10 +21,20 @@ export default function Reviews({
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadReviews();
+    loadUser();
   }, []);
+
+  async function loadUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    setCurrentUserId(session?.user?.id || null);
+  }
 
   async function loadReviews() {
     const { data } = await supabase
@@ -89,6 +100,19 @@ export default function Reviews({
     loadReviews();
   }
 
+  async function deleteReview(reviewId: number) {
+    const confirmed = confirm("Удалить отзыв?");
+
+    if (!confirmed) return;
+
+    await supabase
+      .from("reviews")
+      .delete()
+      .eq("id", reviewId);
+
+    loadReviews();
+  }
+
   const avgRating =
     reviews.length > 0
       ? (
@@ -100,9 +124,7 @@ export default function Reviews({
   return (
     <div className="mt-12">
       <div className="flex items-center gap-4 mb-6">
-        <h2 className="text-2xl font-bold">
-          Отзывы
-        </h2>
+        <h2 className="text-2xl font-bold">Отзывы</h2>
 
         <span className="text-cyan-400">
           ★ {avgRating} ({reviews.length})
@@ -150,9 +172,7 @@ export default function Reviews({
 
       <div className="space-y-4">
         {reviews.length === 0 ? (
-          <p className="text-zinc-400">
-            Пока нет отзывов.
-          </p>
+          <p className="text-zinc-400">Пока нет отзывов.</p>
         ) : (
           reviews.map((review) => (
             <div
@@ -164,10 +184,21 @@ export default function Reviews({
                   {review.author_username}
                 </p>
 
-                <span className="text-yellow-400">
-                  {"★".repeat(review.rating)}
-                  {"☆".repeat(5 - review.rating)}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-yellow-400">
+                    {"★".repeat(review.rating)}
+                    {"☆".repeat(5 - review.rating)}
+                  </span>
+
+                  {currentUserId === review.author_id && (
+                    <button
+                      onClick={() => deleteReview(review.id)}
+                      className="text-red-400 text-sm hover:underline"
+                    >
+                      Удалить
+                    </button>
+                  )}
+                </div>
               </div>
 
               <p className="text-zinc-300 mt-2">
