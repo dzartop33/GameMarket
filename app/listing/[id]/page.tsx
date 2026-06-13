@@ -5,7 +5,7 @@ import ChatButton from "@/components/ChatButton";
 import Reviews from "@/components/Reviews";
 import OwnerActions from "@/components/OwnerActions";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 export default async function ListingPage({
   params,
@@ -17,10 +17,19 @@ export default async function ListingPage({
 
   if (!product) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-white p-10">
-        <h1 className="text-3xl font-bold">
-          Товар не найден
-        </h1>
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold">
+            Товар не найден
+          </h1>
+
+          <Link
+            href="/catalog"
+            className="inline-block mt-6 text-cyan-400 hover:underline"
+          >
+            Перейти в каталог
+          </Link>
+        </div>
       </main>
     );
   }
@@ -45,39 +54,42 @@ export default async function ListingPage({
           </div>
 
           <div>
-            <p className="text-cyan-400">
-              {product.game}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-cyan-400 text-sm">
+                {product.game}
+              </p>
 
-            <h1 className="text-4xl font-bold mt-2">
+              {product.category && (
+                <span className="bg-zinc-800 text-xs px-3 py-1 rounded-full">
+                  {product.category}
+                </span>
+              )}
+            </div>
+
+            <h1 className="text-3xl font-bold mt-3">
               {product.title}
             </h1>
 
-            {product.category && (
-              <span className="inline-block mt-3 bg-zinc-800 text-sm px-3 py-1 rounded-full">
-                {product.category}
-              </span>
-            )}
-
-            <div className="mt-6">
+            <div className="mt-4">
               <Link
                 href={`/seller/${product.seller}`}
-                className="text-cyan-400 hover:underline"
+                className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-cyan-400 transition"
               >
-                Продавец: {product.seller}
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500" />
+                {product.seller}
               </Link>
             </div>
 
-            <p className="mt-6 text-zinc-300">
+            <p className="mt-6 text-zinc-300 leading-relaxed">
               {product.description || "Описание отсутствует."}
             </p>
 
-            <div className="mt-8">
+            <div className="mt-8 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
               <p className="text-4xl font-bold">
                 {product.price}
               </p>
 
-              <div className="flex gap-4 mt-6">
+              <div className="flex gap-3 mt-6">
                 <button className="flex-1 px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold hover:opacity-90 transition">
                   Купить сейчас
                 </button>

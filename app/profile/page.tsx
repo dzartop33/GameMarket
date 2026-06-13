@@ -29,25 +29,27 @@ export default function ProfilePage() {
 
   async function loadProfile() {
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (!user) {
+    if (!session?.user) {
       setLoading(false);
       return;
     }
 
+    const user = session.user;
+
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("*")
+      .select("username, email")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
 
     if (profileData) {
       setProfile(profileData);
     } else {
       setProfile({
-        username: user.email || "",
+        username: user.email?.split("@")[0] || "user",
         email: user.email || "",
       });
     }
@@ -64,8 +66,8 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-white p-10">
-        Загрузка...
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </main>
     );
   }
@@ -92,46 +94,70 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-7xl mx-auto px-6 py-12">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl p-8">
           <div className="flex items-center gap-6">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500" />
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-3xl font-bold text-black">
+              {profile.username.charAt(0).toUpperCase()}
+            </div>
 
             <div>
-              <h1 className="text-4xl font-bold">
+              <h1 className="text-3xl font-bold">
                 {profile.username}
               </h1>
 
-              <p className="text-zinc-400 mt-2">
+              <p className="text-zinc-400 mt-1">
                 {profile.email}
               </p>
+            </div>
+          </div>
 
-              <p className="text-zinc-400">
-                Объявлений: {products.length}
-              </p>
+          <div className="grid grid-cols-3 gap-4 mt-6">
+            <div className="bg-zinc-900/50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">{products.length}</p>
+              <p className="text-zinc-500 text-sm">Объявлений</p>
+            </div>
+
+            <div className="bg-zinc-900/50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">0</p>
+              <p className="text-zinc-500 text-sm">Продаж</p>
+            </div>
+
+            <div className="bg-zinc-900/50 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">5.0</p>
+              <p className="text-zinc-500 text-sm">Рейтинг</p>
             </div>
           </div>
         </div>
 
         <div className="mt-12">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-3xl font-bold">
+            <h2 className="text-2xl font-bold">
               Мои объявления
             </h2>
 
             <Link
               href="/sell"
-              className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-5 py-3 rounded-xl font-semibold"
+              className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-5 py-3 rounded-xl font-semibold text-sm"
             >
-              Создать объявление
+              + Создать
             </Link>
           </div>
 
           {products.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-              У вас пока нет объявлений.
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
+              <p className="text-zinc-400">
+                У вас пока нет объявлений
+              </p>
+
+              <Link
+                href="/sell"
+                className="inline-block mt-4 text-cyan-400 hover:underline"
+              >
+                Создать первое объявление
+              </Link>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {products.map((product) => (
                 <Link
                   key={product.id}
@@ -144,6 +170,7 @@ export default function ProfilePage() {
                           src={product.image_url}
                           alt={product.title}
                           fill
+                          sizes="25vw"
                           className="object-cover"
                         />
                       ) : (
@@ -152,11 +179,11 @@ export default function ProfilePage() {
                     </div>
 
                     <div className="p-4">
-                      <h3 className="font-semibold">
+                      <h3 className="font-semibold text-sm">
                         {product.title}
                       </h3>
 
-                      <p className="text-cyan-400 mt-2">
+                      <p className="text-cyan-400 mt-2 font-bold">
                         {product.price}
                       </p>
                     </div>
