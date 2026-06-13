@@ -81,15 +81,6 @@ export default function AuthButtons() {
   if (username) {
     return (
       <div className="flex items-center gap-2">
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className="px-3 py-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition text-xs font-bold"
-          >
-            👑 Админ
-          </Link>
-        )}
-
         <Link
           href="/wallet"
           className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition text-sm"
@@ -101,11 +92,13 @@ export default function AuthButtons() {
           href="/profile"
           className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition"
         >
-          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-black ${
-            isAdmin
-              ? "bg-gradient-to-br from-red-400 to-orange-500"
-              : "bg-gradient-to-br from-cyan-400 to-blue-500"
-          }`}>
+          <div
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-black ${
+              isAdmin
+                ? "bg-gradient-to-br from-red-400 to-orange-500"
+                : "bg-gradient-to-br from-cyan-400 to-blue-500"
+            }`}
+          >
             {username.charAt(0).toUpperCase()}
           </div>
 
