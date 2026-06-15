@@ -3,7 +3,7 @@ import { supabase } from "./supabase";
 export async function getProducts() {
   const { data, error } = await supabase
     .from("products")
-    .select("id, title, game, category, price, seller, image_url, user_id, status")
+    .select("id, title, game, category, price, quantity, seller, image_url, user_id, status")
     .order("id", { ascending: false })
     .limit(100);
 

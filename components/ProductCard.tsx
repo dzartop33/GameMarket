@@ -8,6 +8,7 @@ type Product = {
   game: string;
   category?: string;
   price: string;
+  quantity?: number;
   seller: string;
   image_url?: string;
 };
@@ -42,21 +43,32 @@ export default function ProductCard({
                 {product.category}
               </span>
             )}
+
+            {/* КОЛИЧЕСТВО — бейдж в углу */}
+            {product.quantity !== undefined && (
+              <span
+                className={`absolute top-3 right-3 text-xs px-2 py-1 rounded-full font-medium ${
+                  product.quantity > 0
+                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "bg-red-500/20 text-red-400 border border-red-500/30"
+                }`}
+              >
+                {product.quantity > 0
+                  ? `${product.quantity} шт.`
+                  : "Нет"}
+              </span>
+            )}
           </div>
 
           <div className="p-4">
-            <p className="text-cyan-400 text-xs">
-              {product.game}
-            </p>
+            <p className="text-cyan-400 text-xs">{product.game}</p>
 
             <h3 className="font-semibold mt-1 line-clamp-2 text-sm">
               {product.title}
             </h3>
 
             <div className="flex items-center justify-between mt-3">
-              <p className="text-lg font-bold">
-                {product.price}
-              </p>
+              <p className="text-lg font-bold">{product.price}</p>
 
               <p className="text-zinc-500 text-xs truncate max-w-[80px]">
                 {product.seller}

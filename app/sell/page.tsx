@@ -16,6 +16,7 @@ export default function SellPage() {
     game: "",
     category: "",
     price: "",
+    quantity: "1",
     description: "",
   });
 
@@ -30,9 +31,7 @@ export default function SellPage() {
     });
   }
 
-  function handleImage(
-    e: React.ChangeEvent<HTMLInputElement>
-  ) {
+  function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] || null;
     setImage(file);
 
@@ -44,10 +43,15 @@ export default function SellPage() {
     }
   }
 
-  async function handleSubmit(
-    e: React.FormEvent
-  ) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const quantity = parseInt(formData.quantity);
+
+    if (isNaN(quantity) || quantity < 1) {
+      alert("Количество должно быть не меньше 1");
+      return;
+    }
 
     setLoading(true);
 
@@ -66,10 +70,9 @@ export default function SellPage() {
     if (image) {
       const fileName = `${Date.now()}-${image.name}`;
 
-      const { error: uploadError } =
-        await supabase.storage
-          .from("product-image")
-          .upload(fileName, image);
+      const { error: uploadError } = await supabase.storage
+        .from("product-image")
+        .upload(fileName, image);
 
       if (uploadError) {
         alert(uploadError.message);
@@ -84,20 +87,19 @@ export default function SellPage() {
       imageUrl = data.publicUrl;
     }
 
-    const { error } = await supabase
-      .from("products")
-      .insert([
-        {
-          title: formData.title,
-          game: formData.game,
-          category: formData.category,
-          price: formData.price,
-          description: formData.description,
-          seller: user.email,
-          user_id: user.id,
-          image_url: imageUrl,
-        },
-      ]);
+    const { error } = await supabase.from("products").insert([
+      {
+        title: formData.title,
+        game: formData.game,
+        category: formData.category,
+        price: formData.price,
+        quantity: quantity,
+        description: formData.description,
+        seller: user.email,
+        user_id: user.id,
+        image_url: imageUrl,
+      },
+    ]);
 
     setLoading(false);
 
@@ -113,6 +115,7 @@ export default function SellPage() {
       game: "",
       category: "",
       price: "",
+      quantity: "1",
       description: "",
     });
 
@@ -127,15 +130,9 @@ export default function SellPage() {
           Разместить объявление
         </h1>
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-6"
-        >
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block mb-2">
-              Название товара
-            </label>
-
+            <label className="block mb-2">Название товара</label>
             <input
               name="title"
               value={formData.title}
@@ -147,10 +144,7 @@ export default function SellPage() {
           </div>
 
           <div>
-            <label className="block mb-2">
-              Игра
-            </label>
-
+            <label className="block mb-2">Игра</label>
             <select
               name="game"
               value={formData.game}
@@ -158,15 +152,9 @@ export default function SellPage() {
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4"
               required
             >
-              <option value="">
-                Выберите игру
-              </option>
-
+              <option value="">Выберите игру</option>
               {games.map((game) => (
-                <option
-                  key={game.name}
-                  value={game.name}
-                >
+                <option key={game.name} value={game.name}>
                   {game.name}
                 </option>
               ))}
@@ -174,10 +162,7 @@ export default function SellPage() {
           </div>
 
           <div>
-            <label className="block mb-2">
-              Категория
-            </label>
-
+            <label className="block mb-2">Категория</label>
             <select
               name="category"
               value={formData.category}
@@ -185,17 +170,11 @@ export default function SellPage() {
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4"
               required
             >
-              <option value="">
-                Выберите категорию
-              </option>
-
+              <option value="">Выберите категорию</option>
               {categories
                 .filter((c) => c.name !== "Все")
                 .map((cat) => (
-                  <option
-                    key={cat.name}
-                    value={cat.name}
-                  >
+                  <option key={cat.name} value={cat.name}>
                     {cat.icon} {cat.name}
                   </option>
                 ))}
@@ -203,25 +182,37 @@ export default function SellPage() {
           </div>
 
           <div>
-            <label className="block mb-2">
-              Цена
-            </label>
-
+            <label className="block mb-2">Цена (₽)</label>
             <input
               name="price"
               value={formData.price}
               onChange={handleChange}
-              placeholder="Например: 2500 ₽"
+              placeholder="Например: 2500"
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4"
               required
             />
           </div>
 
+          {/* НОВОЕ ПОЛЕ — КОЛИЧЕСТВО */}
           <div>
-            <label className="block mb-2">
-              Описание
-            </label>
+            <label className="block mb-2">Количество</label>
+            <input
+              name="quantity"
+              type="number"
+              min="1"
+              value={formData.quantity}
+              onChange={handleChange}
+              placeholder="Например: 10"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+              required
+            />
+            <p className="text-zinc-500 text-sm mt-1">
+              Укажите сколько единиц товара вы продаёте
+            </p>
+          </div>
 
+          <div>
+            <label className="block mb-2">Описание</label>
             <textarea
               name="description"
               value={formData.description}
@@ -233,17 +224,13 @@ export default function SellPage() {
           </div>
 
           <div>
-            <label className="block mb-2">
-              Изображение товара
-            </label>
-
+            <label className="block mb-2">Изображение товара</label>
             <input
               type="file"
               accept="image/*"
               onChange={handleImage}
               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4"
             />
-
             {preview && (
               <div className="relative h-64 w-full rounded-xl overflow-hidden mt-4 border border-zinc-800">
                 <Image
@@ -259,11 +246,9 @@ export default function SellPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-cyan-500 text-black font-bold px-8 py-4 rounded-xl"
+            className="w-full bg-cyan-500 text-black font-bold px-8 py-4 rounded-xl hover:bg-cyan-400 transition disabled:opacity-50"
           >
-            {loading
-              ? "Публикация..."
-              : "Опубликовать"}
+            {loading ? "Публикация..." : "Опубликовать"}
           </button>
         </form>
       </div>

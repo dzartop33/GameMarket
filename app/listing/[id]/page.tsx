@@ -22,7 +22,6 @@ export default async function ListingPage({
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-4xl font-bold">Товар не найден</h1>
-
           <Link
             href="/catalog"
             className="inline-block mt-6 text-cyan-400 hover:underline"
@@ -82,6 +81,21 @@ export default async function ListingPage({
 
             <div className="mt-8 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
               <p className="text-4xl font-bold">{product.price}</p>
+
+              {/* КОЛИЧЕСТВО */}
+              <div className="mt-3 flex items-center gap-2">
+                <span
+                  className={`text-sm font-medium px-3 py-1 rounded-full ${
+                    product.quantity > 0
+                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                      : "bg-red-500/10 text-red-400 border border-red-500/20"
+                  }`}
+                >
+                  {product.quantity > 0
+                    ? `В наличии: ${product.quantity} шт.`
+                    : "Нет в наличии"}
+                </span>
+              </div>
 
               <div className="flex gap-3 mt-6">
                 <BuyButton
