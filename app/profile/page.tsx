@@ -26,9 +26,7 @@ export default function ProfilePage() {
 
   const [username, setUsername] = useState(cached?.username || "");
   const [email, setEmail] = useState(cached?.email || "");
-  const [products, setProducts] = useState<Product[]>(
-    cached?.products || []
-  );
+  const [products, setProducts] = useState<Product[]>(cached?.products || []);
   const [phase, setPhase] = useState<"loading" | "ready" | "no-auth">(
     cached ? "ready" : "loading"
   );
@@ -40,13 +38,23 @@ export default function ProfilePage() {
   async function loadProfile() {
     try {
       const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (error || !user) {
-        setPhase("no-auth");
+      if (!session?.user) {
+        if (!cached) {
+          setPhase("no-auth");
+        }
         return;
+      }
+
+      const user = session.user;
+
+      // Сразу показываем базовые данные
+      if (!cached) {
+        setEmail(user.email || "");
+        setUsername(user.email?.split("@")[0] || "user");
+        setPhase("ready");
       }
 
       const [profileResult, productsResult] = await Promise.all([
@@ -63,10 +71,7 @@ export default function ProfilePage() {
       ]);
 
       const finalUsername =
-        profileResult.data?.username ||
-        user.email?.split("@")[0] ||
-        "user";
-
+        profileResult.data?.username || user.email?.split("@")[0] || "user";
       const finalEmail = user.email || "";
       const finalProducts = productsResult.data || [];
 
@@ -83,12 +88,7 @@ export default function ProfilePage() {
     } catch (error) {
       console.error("Ошибка загрузки профиля:", error);
 
-      const fallback = getCache("profile") as ProfileCache | null;
-
-      if (fallback) {
-        setUsername(fallback.username);
-        setEmail(fallback.email);
-        setProducts(fallback.products);
+      if (cached) {
         setPhase("ready");
       } else {
         setPhase("no-auth");
@@ -113,9 +113,7 @@ export default function ProfilePage() {
     return (
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-4">
-            Войдите в аккаунт
-          </h1>
+          <h1 className="text-3xl font-bold mb-4">Войдите в аккаунт</h1>
           <Link
             href="/login"
             className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-8 py-3 rounded-xl font-bold"
@@ -146,12 +144,10 @@ export default function ProfilePage() {
               <p className="text-2xl font-bold">{products.length}</p>
               <p className="text-zinc-500 text-sm">Объявлений</p>
             </div>
-
             <div className="bg-zinc-900/50 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold">0</p>
               <p className="text-zinc-500 text-sm">Продаж</p>
             </div>
-
             <div className="bg-zinc-900/50 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold">5.0</p>
               <p className="text-zinc-500 text-sm">Рейтинг</p>
@@ -193,14 +189,11 @@ export default function ProfilePage() {
                         <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-700" />
                       )}
                     </div>
-
                     <div className="p-4">
                       <h3 className="font-semibold text-sm line-clamp-1">
                         {p.title}
                       </h3>
-                      <p className="text-cyan-400 mt-2 font-bold">
-                        {p.price}
-                      </p>
+                      <p className="text-cyan-400 mt-2 font-bold">{p.price}</p>
                     </div>
                   </div>
                 </Link>

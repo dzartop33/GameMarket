@@ -49,6 +49,7 @@ export default function WalletPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -72,48 +73,54 @@ export default function WalletPage() {
   }, []);
 
   async function loadWallet() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!session?.user) {
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
+
+      userIdRef.current = session.user.id;
+
+      const [balanceResult, txResult, withdrawResult] = await Promise.all([
+        supabase
+          .from("balances")
+          .select("balance")
+          .eq("id", session.user.id)
+          .maybeSingle(),
+        supabase
+          .from("transactions")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("withdrawal_requests")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ]);
+
+      if (balanceResult.data) setBalance(Number(balanceResult.data.balance));
+      setTransactions(txResult.data || []);
+      setWithdrawals(withdrawResult.data || []);
+
+      const pending = (withdrawResult.data || []).find(
+        (w) => w.status === "pending"
+      );
+      setHasPendingWithdrawal(!!pending);
+
+      subscribeToUpdates(session.user.id);
       setLoading(false);
-      return;
+    } catch (err) {
+      console.error("Ошибка загрузки кошелька:", err);
+      setError(true);
+      setLoading(false);
     }
-
-    userIdRef.current = session.user.id;
-
-    const [balanceResult, txResult, withdrawResult] = await Promise.all([
-      supabase
-        .from("balances")
-        .select("balance")
-        .eq("id", session.user.id)
-        .maybeSingle(),
-      supabase
-        .from("transactions")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false })
-        .limit(50),
-      supabase
-        .from("withdrawal_requests")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false })
-        .limit(20),
-    ]);
-
-    if (balanceResult.data) setBalance(Number(balanceResult.data.balance));
-    setTransactions(txResult.data || []);
-    setWithdrawals(withdrawResult.data || []);
-
-    const pending = (withdrawResult.data || []).find(
-      (w) => w.status === "pending"
-    );
-    setHasPendingWithdrawal(!!pending);
-
-    subscribeToUpdates(session.user.id);
-    setLoading(false);
   }
 
   function subscribeToUpdates(userId: string) {
@@ -147,14 +154,15 @@ export default function WalletPage() {
           if (updated.status === "rejected") {
             setHasPendingWithdrawal(false);
 
-            // Баланс вернулся — обновляем
-            const { data: balanceData } = await supabase
-              .from("balances")
-              .select("balance")
-              .eq("id", userId)
-              .maybeSingle();
+            try {
+              const { data: balanceData } = await supabase
+                .from("balances")
+                .select("balance")
+                .eq("id", userId)
+                .maybeSingle();
 
-            if (balanceData) setBalance(Number(balanceData.balance));
+              if (balanceData) setBalance(Number(balanceData.balance));
+            } catch {}
           }
         }
       )
@@ -185,81 +193,83 @@ export default function WalletPage() {
 
     setWithdrawLoading(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!session?.user) {
-      alert("Необходимо войти в аккаунт");
+      if (!session?.user) {
+        alert("Необходимо войти в аккаунт");
+        setWithdrawLoading(false);
+        return;
+      }
+
+      const { data: existingPending } = await supabase
+        .from("withdrawal_requests")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .eq("status", "pending")
+        .maybeSingle();
+
+      if (existingPending) {
+        alert("У вас уже есть активная заявка на вывод");
+        setWithdrawLoading(false);
+        return;
+      }
+
+      const newBalance = balance - amountNum;
+
+      const { error: balanceError } = await supabase
+        .from("balances")
+        .update({ balance: newBalance })
+        .eq("id", session.user.id);
+
+      if (balanceError) {
+        alert("Ошибка при списании баланса");
+        setWithdrawLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.from("withdrawal_requests").insert([
+        {
+          user_id: session.user.id,
+          user_email: session.user.email,
+          amount: amountNum,
+          method: withdrawMethod,
+          requisites: withdrawRequisites.trim(),
+          status: "pending",
+        },
+      ]);
+
+      await supabase.from("transactions").insert([
+        {
+          user_id: session.user.id,
+          type: "withdrawal",
+          amount: amountNum,
+          description: `Вывод ${amountNum} ₽ (${withdrawMethod})`,
+        },
+      ]);
+
       setWithdrawLoading(false);
-      return;
-    }
 
-    // Проверка на существующую pending заявку
-    const { data: existingPending } = await supabase
-      .from("withdrawal_requests")
-      .select("id")
-      .eq("user_id", session.user.id)
-      .eq("status", "pending")
-      .maybeSingle();
+      if (error) {
+        alert(error.message);
+        return;
+      }
 
-    if (existingPending) {
-      alert("У вас уже есть активная заявка на вывод");
+      setBalance(newBalance);
+      setShowWithdraw(false);
+      setWithdrawAmount("");
+      setWithdrawRequisites("");
+      setHasPendingWithdrawal(true);
+
+      alert("Заявка на вывод создана! Средства будут отправлены после проверки.");
+      loadWallet();
+    } catch (err) {
+      console.error("Ошибка вывода:", err);
+      alert("Произошла ошибка. Попробуйте позже.");
       setWithdrawLoading(false);
-      return;
     }
-
-    // Замораживаем баланс — сразу списываем
-    const newBalance = balance - amountNum;
-
-    const { error: balanceError } = await supabase
-      .from("balances")
-      .update({ balance: newBalance })
-      .eq("id", session.user.id);
-
-    if (balanceError) {
-      alert("Ошибка при списании баланса");
-      setWithdrawLoading(false);
-      return;
-    }
-
-    // Создаём заявку
-    const { error } = await supabase.from("withdrawal_requests").insert([
-      {
-        user_id: session.user.id,
-        user_email: session.user.email,
-        amount: amountNum,
-        method: withdrawMethod,
-        requisites: withdrawRequisites.trim(),
-        status: "pending",
-      },
-    ]);
-
-    // Записываем транзакцию
-    await supabase.from("transactions").insert([
-      {
-        user_id: session.user.id,
-        type: "withdrawal",
-        amount: amountNum,
-        description: `Вывод ${amountNum} ₽ (${withdrawMethod})`,
-      },
-    ]);
-
-    setWithdrawLoading(false);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setBalance(newBalance);
-    setShowWithdraw(false);
-    setWithdrawAmount("");
-    setWithdrawRequisites("");
-    setHasPendingWithdrawal(true);
-
-    alert("Заявка на вывод создана! Средства будут отправлены после проверки.");
-    loadWallet();
   }
 
   if (loading) {
@@ -270,17 +280,34 @@ export default function WalletPage() {
     );
   }
 
+  if (error) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-2xl font-bold mb-4">Ошибка загрузки</p>
+          <button
+            onClick={() => {
+              setError(false);
+              setLoading(true);
+              loadWallet();
+            }}
+            className="bg-cyan-500 text-black px-6 py-3 rounded-xl font-bold"
+          >
+            Попробовать снова
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-3xl mx-auto px-6 py-12">
         <h1 className="text-4xl font-bold mb-8">Кошелёк</h1>
 
-        {/* Уведомление об успешном выводе */}
         {justCompleted && (
           <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center animate-pulse">
-            <p className="text-green-400 text-xl font-bold">
-              ✅ Вывод выполнен!
-            </p>
+            <p className="text-green-400 text-xl font-bold">✅ Вывод выполнен!</p>
             <p className="text-green-400/70 text-sm mt-2">
               Средства отправлены на ваши реквизиты
             </p>
@@ -313,7 +340,6 @@ export default function WalletPage() {
           </div>
         </div>
 
-        {/* Форма вывода */}
         {showWithdraw && !hasPendingWithdrawal && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 mb-8">
             <h2 className="text-xl font-bold mb-6">💸 Вывод средств</h2>
@@ -429,7 +455,6 @@ export default function WalletPage() {
           </div>
         )}
 
-        {/* Активные заявки на вывод */}
         {withdrawals.some((w) => w.status === "pending") && (
           <div className="mb-8">
             <h2 className="text-xl font-bold mb-4">Активные заявки на вывод</h2>
@@ -481,9 +506,7 @@ export default function WalletPage() {
                   <p className="font-semibold text-sm">
                     {typeLabels[tx.type] || tx.type}
                   </p>
-                  <p className="text-zinc-400 text-xs mt-1">
-                    {tx.description}
-                  </p>
+                  <p className="text-zinc-400 text-xs mt-1">{tx.description}</p>
                   <p className="text-zinc-500 text-xs mt-1">
                     {new Date(tx.created_at).toLocaleString("ru")}
                   </p>
@@ -503,7 +526,6 @@ export default function WalletPage() {
           </div>
         )}
 
-        {/* История выводов */}
         {withdrawals.some((w) => w.status !== "pending") && (
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">История выводов</h2>
