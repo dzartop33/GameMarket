@@ -32,6 +32,7 @@ export default function DepositPage() {
   const [currentRequest, setCurrentRequest] = useState<DepositRequest | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [justApproved, setJustApproved] = useState(false);
+  const [hasPending, setHasPending] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const userIdRef = useRef<string | null>(null);
 
@@ -77,6 +78,18 @@ export default function DepositPage() {
 
     setRequests(requestsData || []);
 
+    // Проверяем есть ли pending заявка
+    const pendingRequest = (requestsData || []).find(
+      (r) => r.status === "pending"
+    );
+
+    if (pendingRequest) {
+      setHasPending(true);
+      setCurrentRequest(pendingRequest);
+    } else {
+      setHasPending(false);
+    }
+
     subscribeToUpdates(session.user.id);
   }
 
@@ -103,6 +116,8 @@ export default function DepositPage() {
           );
 
           if (updated.status === "approved") {
+            setHasPending(false);
+
             if (currentRequest && currentRequest.id === updated.id) {
               setJustApproved(true);
               setCurrentRequest(null);
@@ -128,6 +143,8 @@ export default function DepositPage() {
           }
 
           if (updated.status === "rejected") {
+            setHasPending(false);
+
             if (currentRequest && currentRequest.id === updated.id) {
               setCurrentRequest(null);
             }
@@ -172,6 +189,20 @@ export default function DepositPage() {
       return;
     }
 
+    // Проверяем ещё раз перед созданием
+    const { data: existingPending } = await supabase
+      .from("deposit_requests")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (existingPending) {
+      alert("У вас уже есть активная заявка на пополнение. Дождитесь её обработки.");
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("deposit_requests")
       .insert([
@@ -194,6 +225,7 @@ export default function DepositPage() {
     }
 
     setCurrentRequest(data);
+    setHasPending(true);
     loadData();
   }
 
@@ -209,6 +241,22 @@ export default function DepositPage() {
 
     alert("Заявка отправлена на проверку. Баланс будет пополнен после подтверждения.");
     setAmount("");
+  }
+
+  async function handleCancelRequest() {
+    if (!currentRequest) return;
+
+    if (!confirm("Вы уверены, что хотите отменить заявку?")) return;
+
+    await supabase
+      .from("deposit_requests")
+      .update({ status: "rejected", comment: "Отменено пользователем" })
+      .eq("id", currentRequest.id);
+
+    setCurrentRequest(null);
+    setHasPending(false);
+    setAmount("");
+    loadData();
   }
 
   function getSbpLink() {
@@ -302,12 +350,27 @@ export default function DepositPage() {
               </div>
             )}
 
+            {/* Предупреждение если есть pending */}
+            {hasPending && (
+              <div className="mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
+                <p className="text-yellow-500 text-sm text-center">
+                  ⚠️ У вас уже есть активная заявка на пополнение.
+                  <br />
+                  Дождитесь её обработки или отмените.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={handleCreateRequest}
-              disabled={loading || !amount || parseFloat(amount) < 100}
+              disabled={loading || !amount || parseFloat(amount) < 100 || hasPending}
               className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition"
             >
-              {loading ? "Создание..." : "Продолжить"}
+              {loading
+                ? "Создание..."
+                : hasPending
+                ? "Есть активная заявка"
+                : "Продолжить"}
             </button>
           </div>
         ) : (
@@ -456,13 +519,10 @@ export default function DepositPage() {
               </button>
 
               <button
-                onClick={() => {
-                  setCurrentRequest(null);
-                  setAmount("");
-                }}
-                className="w-full text-zinc-500 text-sm hover:text-white transition"
+                onClick={handleCancelRequest}
+                className="w-full py-3 bg-red-500/10 border border-red-500/20 text-red-400 font-semibold rounded-xl hover:bg-red-500/20 transition"
               >
-                Отмена
+                Отменить заявку
               </button>
             </div>
           </div>
