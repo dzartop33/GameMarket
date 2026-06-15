@@ -33,8 +33,11 @@ export default function DepositPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [justApproved, setJustApproved] = useState(false);
   const [hasPending, setHasPending] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const userIdRef = useRef<string | null>(null);
+  const sessionRef = useRef<any>(null);
 
   useEffect(() => {
     loadData();
@@ -47,50 +50,52 @@ export default function DepositPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (userIdRef.current) {
-      subscribeToUpdates(userIdRef.current);
-    }
-  }, [currentRequest]);
-
   async function loadData() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!session?.user) return;
+      if (!session?.user) {
+        setPageLoading(false);
+        return;
+      }
 
-    userIdRef.current = session.user.id;
+      sessionRef.current = session;
+      userIdRef.current = session.user.id;
 
-    const { data: balanceData } = await supabase
-      .from("balances")
-      .select("balance")
-      .eq("id", session.user.id)
-      .maybeSingle();
+      // Все запросы параллельно
+      const [balanceResult, requestsResult] = await Promise.all([
+        supabase
+          .from("balances")
+          .select("balance")
+          .eq("id", session.user.id)
+          .maybeSingle(),
+        supabase
+          .from("deposit_requests")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ]);
 
-    if (balanceData) setBalance(Number(balanceData.balance));
+      if (balanceResult.data) setBalance(Number(balanceResult.data.balance));
 
-    const { data: requestsData } = await supabase
-      .from("deposit_requests")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false });
+      const allRequests = requestsResult.data || [];
+      setRequests(allRequests);
 
-    setRequests(requestsData || []);
+      const pendingRequest = allRequests.find((r) => r.status === "pending");
+      if (pendingRequest) {
+        setHasPending(true);
+        setCurrentRequest(pendingRequest);
+      }
 
-    // Проверяем есть ли pending заявка
-    const pendingRequest = (requestsData || []).find(
-      (r) => r.status === "pending"
-    );
-
-    if (pendingRequest) {
-      setHasPending(true);
-      setCurrentRequest(pendingRequest);
-    } else {
-      setHasPending(false);
+      subscribeToUpdates(session.user.id);
+      setPageLoading(false);
+    } catch (err) {
+      console.error("Ошибка загрузки:", err);
+      setPageLoading(false);
     }
-
-    subscribeToUpdates(session.user.id);
   }
 
   function subscribeToUpdates(userId: string) {
@@ -117,37 +122,31 @@ export default function DepositPage() {
 
           if (updated.status === "approved") {
             setHasPending(false);
+            setCurrentRequest((cur) => {
+              if (cur && cur.id === updated.id) {
+                setJustApproved(true);
+                setTimeout(() => setJustApproved(false), 5000);
+                return null;
+              }
+              return cur;
+            });
 
-            if (currentRequest && currentRequest.id === updated.id) {
-              setJustApproved(true);
-              setCurrentRequest(null);
-
+            try {
               const { data: balanceData } = await supabase
                 .from("balances")
                 .select("balance")
                 .eq("id", userId)
                 .maybeSingle();
-
               if (balanceData) setBalance(Number(balanceData.balance));
-
-              setTimeout(() => setJustApproved(false), 5000);
-            } else {
-              const { data: balanceData } = await supabase
-                .from("balances")
-                .select("balance")
-                .eq("id", userId)
-                .maybeSingle();
-
-              if (balanceData) setBalance(Number(balanceData.balance));
-            }
+            } catch {}
           }
 
           if (updated.status === "rejected") {
             setHasPending(false);
-
-            if (currentRequest && currentRequest.id === updated.id) {
-              setCurrentRequest(null);
-            }
+            setCurrentRequest((cur) => {
+              if (cur && cur.id === updated.id) return null;
+              return cur;
+            });
           }
         }
       )
@@ -177,38 +176,37 @@ export default function DepositPage() {
       return;
     }
 
+    if (hasPending) {
+      alert("У вас уже есть активная заявка на пополнение.");
+      return;
+    }
+
     setLoading(true);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
+    // Используем кэшированную сессию
+    const session = sessionRef.current;
     if (!session?.user) {
-      alert("Необходимо войти в аккаунт");
-      setLoading(false);
-      return;
+      const {
+        data: { session: freshSession },
+      } = await supabase.auth.getSession();
+
+      if (!freshSession?.user) {
+        alert("Необходимо войти в аккаунт");
+        setLoading(false);
+        return;
+      }
+      sessionRef.current = freshSession;
     }
 
-    // Проверяем ещё раз перед созданием
-    const { data: existingPending } = await supabase
-      .from("deposit_requests")
-      .select("id")
-      .eq("user_id", session.user.id)
-      .eq("status", "pending")
-      .maybeSingle();
+    const user = sessionRef.current.user;
 
-    if (existingPending) {
-      alert("У вас уже есть активная заявка на пополнение. Дождитесь её обработки.");
-      setLoading(false);
-      return;
-    }
-
+    // Один запрос — сразу создаём
     const { data, error } = await supabase
       .from("deposit_requests")
       .insert([
         {
-          user_id: session.user.id,
-          user_email: session.user.email,
+          user_id: user.id,
+          user_email: user.email,
           amount: amountNum,
           payment_method: "СБП",
           status: "pending",
@@ -220,13 +218,18 @@ export default function DepositPage() {
     setLoading(false);
 
     if (error) {
-      alert(error.message);
+      if (error.message.includes("duplicate") || error.code === "23505") {
+        alert("У вас уже есть активная заявка.");
+      } else {
+        alert(error.message);
+      }
       return;
     }
 
+    // Обновляем стейт без повторной загрузки
     setCurrentRequest(data);
     setHasPending(true);
-    loadData();
+    setRequests((prev) => [data, ...prev]);
   }
 
   async function handleConfirm() {
@@ -253,10 +256,14 @@ export default function DepositPage() {
       .update({ status: "rejected", comment: "Отменено пользователем" })
       .eq("id", currentRequest.id);
 
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === currentRequest.id ? { ...r, status: "rejected" } : r
+      )
+    );
     setCurrentRequest(null);
     setHasPending(false);
     setAmount("");
-    loadData();
   }
 
   function getSbpLink() {
@@ -280,6 +287,14 @@ export default function DepositPage() {
   const presets = [100, 500, 1000, 2000, 5000, 10000];
   const netAmount = amount ? (parseFloat(amount) * 0.9).toFixed(2) : "0.00";
 
+  if (pageLoading) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-6 py-12">
@@ -289,7 +304,6 @@ export default function DepositPage() {
           Текущий баланс: {balance.toFixed(2)} ₽
         </p>
 
-        {/* Уведомление об успешном зачислении */}
         {justApproved && (
           <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center animate-pulse">
             <p className="text-green-400 text-xl font-bold">✅ Баланс пополнен!</p>
@@ -350,7 +364,6 @@ export default function DepositPage() {
               </div>
             )}
 
-            {/* Предупреждение если есть pending */}
             {hasPending && (
               <div className="mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
                 <p className="text-yellow-500 text-sm text-center">
@@ -374,7 +387,7 @@ export default function DepositPage() {
             </button>
           </div>
         ) : (
-          <div className="bg-zinc-900 border border-cyan-500/50 rounded-3xl p-8 animate-slide-up">
+          <div className="bg-zinc-900 border border-cyan-500/50 rounded-3xl p-8">
             <h2 className="text-xl font-bold mb-2 text-cyan-400 text-center">
               Оплата заявки #{currentRequest.id}
             </h2>
@@ -399,7 +412,6 @@ export default function DepositPage() {
                   >
                     Открыть Сбербанк
                   </a>
-
                   <a
                     href={getSbpLink()}
                     className="block w-full py-4 bg-blue-500 text-black font-bold rounded-xl text-center"
@@ -412,7 +424,6 @@ export default function DepositPage() {
                   <p className="text-center text-zinc-400 mb-4">
                     Отсканируйте QR-код в приложении банка
                   </p>
-
                   <div className="flex justify-center bg-white p-4 rounded-2xl">
                     <QRCodeSVG value={getSbpLink()} size={200} level="M" />
                   </div>
@@ -425,31 +436,21 @@ export default function DepositPage() {
                 </p>
 
                 <div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
-                    Получатель
-                  </p>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Получатель</p>
                   <p className="text-lg font-bold">{SBP_NAME}</p>
                 </div>
 
                 <div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
-                    Банк
-                  </p>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Банк</p>
                   <p className="text-lg font-bold">{SBP_BANK}</p>
                 </div>
 
                 <div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
-                    Номер телефона
-                  </p>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Номер телефона</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-xl font-mono text-cyan-400">
-                      {SBP_PHONE_DISPLAY}
-                    </span>
+                    <span className="text-xl font-mono text-cyan-400">{SBP_PHONE_DISPLAY}</span>
                     <button
-                      onClick={() =>
-                        copyText(SBP_PHONE.replace(/[^\d+]/g, ""), "phone")
-                      }
+                      onClick={() => copyText(SBP_PHONE.replace(/[^\d+]/g, ""), "phone")}
                       className="text-xs bg-cyan-500 text-black px-2 py-1 rounded font-bold"
                     >
                       {copied === "phone" ? "✓" : "КОПИРОВАТЬ"}
@@ -458,17 +459,11 @@ export default function DepositPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
-                    Сумма
-                  </p>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Сумма</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-xl font-bold">
-                      {currentRequest.amount} ₽
-                    </span>
+                    <span className="text-xl font-bold">{currentRequest.amount} ₽</span>
                     <button
-                      onClick={() =>
-                        copyText(currentRequest.amount.toString(), "amount")
-                      }
+                      onClick={() => copyText(currentRequest.amount.toString(), "amount")}
                       className="text-xs bg-cyan-500 text-black px-2 py-1 rounded font-bold"
                     >
                       {copied === "amount" ? "✓" : "КОПИРОВАТЬ"}
@@ -485,25 +480,16 @@ export default function DepositPage() {
                     GameMarket ID{currentRequest.id}
                   </span>
                 </p>
-
                 <div className="flex justify-center mt-2">
                   <button
-                    onClick={() =>
-                      copyText(
-                        `GameMarket ID${currentRequest.id}`,
-                        "comment"
-                      )
-                    }
+                    onClick={() => copyText(`GameMarket ID${currentRequest.id}`, "comment")}
                     className="text-xs bg-yellow-500 text-black px-3 py-1 rounded font-bold"
                   >
-                    {copied === "comment"
-                      ? "✓ Скопировано"
-                      : "Копировать комментарий"}
+                    {copied === "comment" ? "✓ Скопировано" : "Копировать комментарий"}
                   </button>
                 </div>
               </div>
 
-              {/* Индикатор ожидания */}
               <div className="flex items-center justify-center gap-3 py-4">
                 <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse" />
                 <span className="text-yellow-500 text-sm">
@@ -545,11 +531,9 @@ export default function DepositPage() {
                   <div>
                     <p className="font-bold">{req.amount} ₽</p>
                     <p className="text-xs text-zinc-500">
-                      #{req.id} ·{" "}
-                      {new Date(req.created_at).toLocaleString("ru")}
+                      #{req.id} · {new Date(req.created_at).toLocaleString("ru")}
                     </p>
                   </div>
-
                   <span
                     className={`text-xs px-3 py-1 rounded-full border ${
                       req.status === "pending"
