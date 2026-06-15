@@ -3,19 +3,43 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { getCache, setCache, clearCache } from "@/lib/cache";
+
+type AuthCache = {
+  username: string | null;
+  balance: number | null;
+  isAdmin: boolean;
+};
 
 export default function AuthButtons() {
-  const [username, setUsername] = useState<string | null>(null);
-  const [balance, setBalance] = useState<number | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const cached = getCache("auth-user") as AuthCache | null;
+
+  const [username, setUsername] = useState<string | null>(
+    cached?.username ?? null
+  );
+  const [balance, setBalance] = useState<number | null>(
+    cached?.balance ?? null
+  );
+  const [isAdmin, setIsAdmin] = useState<boolean>(
+    cached?.isAdmin ?? false
+  );
+  const [loaded, setLoaded] = useState<boolean>(!!cached);
 
   useEffect(() => {
     loadUser();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        clearCache("auth-user");
+        setUsername(null);
+        setBalance(null);
+        setIsAdmin(false);
+        setLoaded(true);
+        return;
+      }
+
       loadUser();
     });
 
@@ -25,50 +49,81 @@ export default function AuthButtons() {
   }, []);
 
   async function loadUser() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (!session?.user) {
-      setUsername(null);
-      setBalance(null);
-      setIsAdmin(false);
+      if (userError || !user) {
+        clearCache("auth-user");
+        setUsername(null);
+        setBalance(null);
+        setIsAdmin(false);
+        setLoaded(true);
+        return;
+      }
+
+      const [profileResult, balanceResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("username, role")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("balances")
+          .select("balance")
+          .eq("id", user.id)
+          .maybeSingle(),
+      ]);
+
+      const finalUsername =
+        profileResult.data?.username ||
+        user.email?.split("@")[0] ||
+        "user";
+
+      const finalIsAdmin = profileResult.data?.role === "admin";
+      const finalBalance =
+        balanceResult.data?.balance !== undefined &&
+        balanceResult.data?.balance !== null
+          ? Number(balanceResult.data.balance)
+          : 0;
+
+      setUsername(finalUsername);
+      setBalance(finalBalance);
+      setIsAdmin(finalIsAdmin);
       setLoaded(true);
-      return;
-    }
 
-    const user = session.user;
-    setUsername(user.email?.split("@")[0] || "user");
-    setLoaded(true);
+      setCache("auth-user", {
+        username: finalUsername,
+        balance: finalBalance,
+        isAdmin: finalIsAdmin,
+      });
+    } catch (error) {
+      console.error("Ошибка загрузки пользователя:", error);
 
-    const [profileResult, balanceResult] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("username, role")
-        .eq("id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("balances")
-        .select("balance")
-        .eq("id", user.id)
-        .maybeSingle(),
-    ]);
+      const fallback = getCache("auth-user") as AuthCache | null;
 
-    if (profileResult.data?.username) {
-      setUsername(profileResult.data.username);
-    }
+      if (fallback) {
+        setUsername(fallback.username);
+        setBalance(fallback.balance);
+        setIsAdmin(fallback.isAdmin);
+      }
 
-    if (profileResult.data?.role === "admin") {
-      setIsAdmin(true);
-    }
-
-    if (balanceResult.data) {
-      setBalance(Number(balanceResult.data.balance));
+      setLoaded(true);
     }
   }
 
   async function handleLogout() {
+    clearCache("auth-user");
+    clearCache("profile");
+
     await supabase.auth.signOut();
+
+    setUsername(null);
+    setBalance(null);
+    setIsAdmin(false);
+
     window.location.assign("/");
   }
 
