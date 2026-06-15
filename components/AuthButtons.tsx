@@ -6,23 +6,17 @@ import { supabase } from "@/lib/supabase";
 import { getCache, setCache, clearCache } from "@/lib/cache";
 
 type AuthCache = {
-  username: string | null;
-  balance: number | null;
+  username: string;
+  balance: number;
   isAdmin: boolean;
 };
 
 export default function AuthButtons() {
   const cached = getCache("auth-user") as AuthCache | null;
 
-  const [username, setUsername] = useState<string | null>(
-    cached?.username ?? null
-  );
-  const [balance, setBalance] = useState<number | null>(
-    cached?.balance ?? null
-  );
-  const [isAdmin, setIsAdmin] = useState<boolean>(
-    cached?.isAdmin ?? false
-  );
+  const [username, setUsername] = useState<string | null>(cached?.username ?? null);
+  const [balance, setBalance] = useState<number | null>(cached?.balance ?? null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(cached?.isAdmin ?? false);
   const [loaded, setLoaded] = useState<boolean>(!!cached);
 
   useEffect(() => {
@@ -33,13 +27,13 @@ export default function AuthButtons() {
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         clearCache("auth-user");
+        clearCache("profile");
         setUsername(null);
         setBalance(null);
         setIsAdmin(false);
         setLoaded(true);
         return;
       }
-
       loadUser();
     });
 
@@ -51,17 +45,25 @@ export default function AuthButtons() {
   async function loadUser() {
     try {
       const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (userError || !user) {
-        clearCache("auth-user");
-        setUsername(null);
-        setBalance(null);
-        setIsAdmin(false);
+      if (!session?.user) {
+        if (!cached) {
+          setUsername(null);
+          setBalance(null);
+          setIsAdmin(false);
+        }
         setLoaded(true);
         return;
+      }
+
+      const user = session.user;
+
+      // Сразу показываем что-то
+      if (!username) {
+        setUsername(user.email?.split("@")[0] || "user");
+        setLoaded(true);
       }
 
       const [profileResult, balanceResult] = await Promise.all([
@@ -78,10 +80,7 @@ export default function AuthButtons() {
       ]);
 
       const finalUsername =
-        profileResult.data?.username ||
-        user.email?.split("@")[0] ||
-        "user";
-
+        profileResult.data?.username || user.email?.split("@")[0] || "user";
       const finalIsAdmin = profileResult.data?.role === "admin";
       const finalBalance =
         balanceResult.data?.balance !== undefined &&
@@ -102,12 +101,11 @@ export default function AuthButtons() {
     } catch (error) {
       console.error("Ошибка загрузки пользователя:", error);
 
-      const fallback = getCache("auth-user") as AuthCache | null;
-
-      if (fallback) {
-        setUsername(fallback.username);
-        setBalance(fallback.balance);
-        setIsAdmin(fallback.isAdmin);
+      // Если есть кэш — используем его
+      if (cached) {
+        setUsername(cached.username);
+        setBalance(cached.balance);
+        setIsAdmin(cached.isAdmin);
       }
 
       setLoaded(true);
@@ -117,20 +115,15 @@ export default function AuthButtons() {
   async function handleLogout() {
     clearCache("auth-user");
     clearCache("profile");
-
     await supabase.auth.signOut();
-
     setUsername(null);
     setBalance(null);
     setIsAdmin(false);
-
     window.location.assign("/");
   }
 
   if (!loaded) {
-    return (
-      <div className="w-32 h-10 rounded-xl bg-zinc-800 animate-pulse" />
-    );
+    return <div className="w-32 h-10 rounded-xl bg-zinc-800 animate-pulse" />;
   }
 
   if (username) {
@@ -156,7 +149,6 @@ export default function AuthButtons() {
           >
             {username.charAt(0).toUpperCase()}
           </div>
-
           <span className="text-sm max-w-[100px] truncate hidden sm:block">
             {username}
           </span>
@@ -180,7 +172,6 @@ export default function AuthButtons() {
       >
         Вход
       </Link>
-
       <Link
         href="/register"
         className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-semibold hover:opacity-90 transition text-sm"
