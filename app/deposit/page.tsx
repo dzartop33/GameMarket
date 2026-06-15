@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/lib/supabase";
 
@@ -31,11 +31,26 @@ export default function DepositPage() {
   const [copied, setCopied] = useState("");
   const [currentRequest, setCurrentRequest] = useState<DepositRequest | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [justApproved, setJustApproved] = useState(false);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadData();
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    if (userIdRef.current) {
+      subscribeToUpdates(userIdRef.current);
+    }
+  }, [currentRequest]);
 
   async function loadData() {
     const {
@@ -43,6 +58,8 @@ export default function DepositPage() {
     } = await supabase.auth.getSession();
 
     if (!session?.user) return;
+
+    userIdRef.current = session.user.id;
 
     const { data: balanceData } = await supabase
       .from("balances")
@@ -59,6 +76,67 @@ export default function DepositPage() {
       .order("created_at", { ascending: false });
 
     setRequests(requestsData || []);
+
+    subscribeToUpdates(session.user.id);
+  }
+
+  function subscribeToUpdates(userId: string) {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    const channel = supabase
+      .channel("deposit-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "deposit_requests",
+          filter: `user_id=eq.${userId}`,
+        },
+        async (payload) => {
+          const updated = payload.new as DepositRequest;
+
+          setRequests((prev) =>
+            prev.map((r) => (r.id === updated.id ? updated : r))
+          );
+
+          if (updated.status === "approved") {
+            if (currentRequest && currentRequest.id === updated.id) {
+              setJustApproved(true);
+              setCurrentRequest(null);
+
+              const { data: balanceData } = await supabase
+                .from("balances")
+                .select("balance")
+                .eq("id", userId)
+                .maybeSingle();
+
+              if (balanceData) setBalance(Number(balanceData.balance));
+
+              setTimeout(() => setJustApproved(false), 5000);
+            } else {
+              const { data: balanceData } = await supabase
+                .from("balances")
+                .select("balance")
+                .eq("id", userId)
+                .maybeSingle();
+
+              if (balanceData) setBalance(Number(balanceData.balance));
+            }
+          }
+
+          if (updated.status === "rejected") {
+            if (currentRequest && currentRequest.id === updated.id) {
+              setCurrentRequest(null);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    channelRef.current = channel;
   }
 
   function copyText(text: string, label: string) {
@@ -130,9 +208,7 @@ export default function DepositPage() {
       .eq("id", currentRequest.id);
 
     alert("Заявка отправлена на проверку. Баланс будет пополнен после подтверждения.");
-    setCurrentRequest(null);
     setAmount("");
-    loadData();
   }
 
   function getSbpLink() {
@@ -159,13 +235,21 @@ export default function DepositPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-6 py-12">
-        <h1 className="text-3xl font-bold mb-2">
-          💳 Пополнение баланса
-        </h1>
+        <h1 className="text-3xl font-bold mb-2">💳 Пополнение баланса</h1>
 
         <p className="text-zinc-400 mb-8">
           Текущий баланс: {balance.toFixed(2)} ₽
         </p>
+
+        {/* Уведомление об успешном зачислении */}
+        {justApproved && (
+          <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-2xl p-6 text-center animate-pulse">
+            <p className="text-green-400 text-xl font-bold">✅ Баланс пополнен!</p>
+            <p className="text-green-400/70 text-sm mt-2">
+              Средства зачислены на ваш счёт
+            </p>
+          </div>
+        )}
 
         {!currentRequest ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
@@ -228,9 +312,13 @@ export default function DepositPage() {
           </div>
         ) : (
           <div className="bg-zinc-900 border border-cyan-500/50 rounded-3xl p-8 animate-slide-up">
-            <h2 className="text-xl font-bold mb-6 text-cyan-400 text-center">
+            <h2 className="text-xl font-bold mb-2 text-cyan-400 text-center">
               Оплата заявки #{currentRequest.id}
             </h2>
+
+            <p className="text-center text-zinc-400 text-sm mb-6">
+              Статус обновится автоматически после подтверждения
+            </p>
 
             <div className="space-y-6">
               <div className="flex justify-between items-center bg-zinc-800/50 p-4 rounded-2xl">
@@ -263,11 +351,7 @@ export default function DepositPage() {
                   </p>
 
                   <div className="flex justify-center bg-white p-4 rounded-2xl">
-                    <QRCodeSVG
-                      value={getSbpLink()}
-                      size={200}
-                      level="M"
-                    />
+                    <QRCodeSVG value={getSbpLink()} size={200} level="M" />
                   </div>
                 </div>
               )}
@@ -301,10 +385,7 @@ export default function DepositPage() {
                     </span>
                     <button
                       onClick={() =>
-                        copyText(
-                          SBP_PHONE.replace(/[^\d+]/g, ""),
-                          "phone"
-                        )
+                        copyText(SBP_PHONE.replace(/[^\d+]/g, ""), "phone")
                       }
                       className="text-xs bg-cyan-500 text-black px-2 py-1 rounded font-bold"
                     >
@@ -323,10 +404,7 @@ export default function DepositPage() {
                     </span>
                     <button
                       onClick={() =>
-                        copyText(
-                          currentRequest.amount.toString(),
-                          "amount"
-                        )
+                        copyText(currentRequest.amount.toString(), "amount")
                       }
                       className="text-xs bg-cyan-500 text-black px-2 py-1 rounded font-bold"
                     >
@@ -355,9 +433,19 @@ export default function DepositPage() {
                     }
                     className="text-xs bg-yellow-500 text-black px-3 py-1 rounded font-bold"
                   >
-                    {copied === "comment" ? "✓ Скопировано" : "Копировать комментарий"}
+                    {copied === "comment"
+                      ? "✓ Скопировано"
+                      : "Копировать комментарий"}
                   </button>
                 </div>
+              </div>
+
+              {/* Индикатор ожидания */}
+              <div className="flex items-center justify-center gap-3 py-4">
+                <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse" />
+                <span className="text-yellow-500 text-sm">
+                  Ожидание подтверждения администратором...
+                </span>
               </div>
 
               <button
@@ -381,9 +469,7 @@ export default function DepositPage() {
         )}
 
         <div className="mt-12">
-          <h3 className="text-xl font-bold mb-6">
-            История пополнений
-          </h3>
+          <h3 className="text-xl font-bold mb-6">История пополнений</h3>
 
           {requests.length === 0 ? (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
@@ -399,7 +485,8 @@ export default function DepositPage() {
                   <div>
                     <p className="font-bold">{req.amount} ₽</p>
                     <p className="text-xs text-zinc-500">
-                      #{req.id} · {new Date(req.created_at).toLocaleString("ru")}
+                      #{req.id} ·{" "}
+                      {new Date(req.created_at).toLocaleString("ru")}
                     </p>
                   </div>
 
