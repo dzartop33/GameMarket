@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
 type UserData = {
@@ -70,9 +70,18 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState("");
   const [amount, setAmount] = useState("");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [newAlert, setNewAlert] = useState("");
+
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     checkAdmin();
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -104,6 +113,153 @@ export default function AdminPage() {
 
     setIsAdmin(true);
     setLoading(false);
+    subscribeToRealtime();
+  }
+
+  function subscribeToRealtime() {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    const channel = supabase
+      .channel("admin-realtime")
+
+      // Новые заявки на пополнение
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "deposit_requests",
+        },
+        (payload) => {
+          const newDeposit = payload.new as DepositRequest;
+          setDeposits((prev) => [newDeposit, ...prev]);
+          showAlert(`💰 Новая заявка на пополнение: ${newDeposit.amount} ₽ от ${newDeposit.user_email}`);
+        }
+      )
+
+      // Обновления заявок на пополнение
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "deposit_requests",
+        },
+        (payload) => {
+          const updated = payload.new as DepositRequest;
+          setDeposits((prev) =>
+            prev.map((d) => (d.id === updated.id ? updated : d))
+          );
+        }
+      )
+
+      // Новые заявки на вывод
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "withdrawal_requests",
+        },
+        (payload) => {
+          const newWithdrawal = payload.new as WithdrawalRequest;
+          setWithdrawals((prev) => [newWithdrawal, ...prev]);
+          showAlert(`💸 Новая заявка на вывод: ${newWithdrawal.amount} ₽ от ${newWithdrawal.user_email}`);
+        }
+      )
+
+      // Обновления заявок на вывод
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "withdrawal_requests",
+        },
+        (payload) => {
+          const updated = payload.new as WithdrawalRequest;
+          setWithdrawals((prev) =>
+            prev.map((w) => (w.id === updated.id ? updated : w))
+          );
+        }
+      )
+
+      // Новые товары
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "products",
+        },
+        (payload) => {
+          const newProduct = payload.new as Product;
+          setProducts((prev) => [newProduct, ...prev]);
+        }
+      )
+
+      // Удаление товаров
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "products",
+        },
+        (payload) => {
+          const deleted = payload.old as Product;
+          setProducts((prev) => prev.filter((p) => p.id !== deleted.id));
+        }
+      )
+
+      // Новые сделки
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "deals",
+        },
+        (payload) => {
+          const newDeal = payload.new as Deal;
+          setDeals((prev) => [newDeal, ...prev]);
+          showAlert(`🤝 Новая сделка: ${newDeal.product_title}`);
+        }
+      )
+
+      // Обновления сделок
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "deals",
+        },
+        (payload) => {
+          const updated = payload.new as Deal;
+          setDeals((prev) =>
+            prev.map((d) => (d.id === updated.id ? updated : d))
+          );
+        }
+      )
+
+      .subscribe();
+
+    channelRef.current = channel;
+  }
+
+  function showAlert(message: string) {
+    setNewAlert(message);
+    setTimeout(() => setNewAlert(""), 5000);
+
+    // Звуковое уведомление
+    try {
+      const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkZeYl5GJfXFkV0xDPDk5PUNLVWBqdH+IkJaZmZeTi4F2amBWTkdCPz9DR01WYGp0f4iQlpmZk4uBdmhfVU5HQj9AQ0dOV2FrdYCJkZaZmZOKgXZoX1VOR0I/QENHUF5p");
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
+    } catch {}
   }
 
   async function loadTab(tabName: string) {
@@ -218,9 +374,7 @@ export default function AdminPage() {
       .eq("id", id);
 
     setDeposits((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status: "rejected" } : d
-      )
+      prev.map((d) => (d.id === id ? { ...d, status: "rejected" } : d))
     );
 
     setActionLoading(null);
@@ -246,7 +400,6 @@ export default function AdminPage() {
   async function rejectWithdrawal(withdrawal: WithdrawalRequest) {
     setActionLoading(withdrawal.id);
 
-    // Возвращаем деньги на баланс
     const { data: balanceData } = await supabase
       .from("balances")
       .select("balance")
@@ -309,9 +462,7 @@ export default function AdminPage() {
 
     setUsers((prev) =>
       prev.map((u) =>
-        u.id === selectedUser
-          ? { ...u, balance: u.balance + amountNum }
-          : u
+        u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u
       )
     );
 
@@ -332,19 +483,12 @@ export default function AdminPage() {
 
   async function toggleRole(userId: string, role: string) {
     const newRole = role === "admin" ? "user" : "admin";
-    if (
-      !confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?")
-    )
+    if (!confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?"))
       return;
 
-    await supabase
-      .from("profiles")
-      .update({ role: newRole })
-      .eq("id", userId);
+    await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
     setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, role: newRole } : u
-      )
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
     );
   }
 
@@ -354,9 +498,7 @@ export default function AdminPage() {
       .update({ is_moderated: !current })
       .eq("id", id);
     setProducts((prev) =>
-      prev.map((p) =>
-        p.id === id ? { ...p, is_moderated: !current } : p
-      )
+      prev.map((p) => (p.id === id ? { ...p, is_moderated: !current } : p))
     );
   }
 
@@ -392,12 +534,28 @@ export default function AdminPage() {
   ];
 
   const pendingDeposits = deposits.filter((d) => d.status === "pending").length;
-  const pendingWithdrawals = withdrawals.filter((w) => w.status === "pending").length;
+  const pendingWithdrawals = withdrawals.filter(
+    (w) => w.status === "pending"
+  ).length;
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-12">
-        <h1 className="text-4xl font-bold mb-8">Админ-панель</h1>
+
+        {/* Всплывающее уведомление */}
+        {newAlert && (
+          <div className="fixed top-4 right-4 z-50 bg-cyan-500 text-black px-6 py-4 rounded-2xl shadow-lg shadow-cyan-500/20 animate-bounce max-w-sm">
+            <p className="font-bold text-sm">{newAlert}</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-4xl font-bold">Админ-панель</h1>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-green-400 text-xs">Live</span>
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-2 mb-8">
           {tabs.map((t) => (
@@ -412,12 +570,12 @@ export default function AdminPage() {
             >
               {t.label}
               {t.id === "deposits" && pendingDeposits > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
                   {pendingDeposits}
                 </span>
               )}
               {t.id === "withdrawals" && pendingWithdrawals > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
                   {pendingWithdrawals}
                 </span>
               )}
@@ -491,7 +649,6 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* НОВАЯ ВКЛАДКА — ВЫВОДЫ */}
             {tab === "withdrawals" && (
               <div className="space-y-3">
                 {withdrawals.length === 0 ? (
@@ -560,9 +717,7 @@ export default function AdminPage() {
                   <div
                     key={user.id}
                     className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-                      user.is_blocked
-                        ? "border-red-500/30"
-                        : "border-zinc-800"
+                      user.is_blocked ? "border-red-500/30" : "border-zinc-800"
                     }`}
                   >
                     <div>
@@ -681,9 +836,7 @@ export default function AdminPage() {
 
             {tab === "balance" && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h2 className="text-xl font-bold mb-4">
-                  Пополнить вручную
-                </h2>
+                <h2 className="text-xl font-bold mb-4">Пополнить вручную</h2>
                 <div className="flex flex-col md:flex-row gap-3">
                   <select
                     value={selectedUser}
