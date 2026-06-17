@@ -60,7 +60,6 @@ export default function AdminPage() {
   const [myRole, setMyRole] = useState("user");
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
-  const [debugInfo, setDebugInfo] = useState("");
 
   const [users, setUsers] = useState<UserData[]>([]);
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
@@ -71,7 +70,10 @@ export default function AdminPage() {
 
   const [selectedUser, setSelectedUser] = useState("");
   const [amount, setAmount] = useState("");
-  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
+  // Множество для параллельных действий
+  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
+
   const [newAlert, setNewAlert] = useState("");
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -92,16 +94,25 @@ export default function AdminPage() {
     }
   }, [tab, isAdmin]);
 
+  function startAction(id: number) {
+    setActionLoading((prev) => new Set(prev).add(id));
+  }
+
+  function endAction(id: number) {
+    setActionLoading((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
   async function checkAdmin() {
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      console.log("SESSION:", session?.user?.id, session?.user?.email);
-
       if (!session?.user) {
-        setDebugInfo("Нет сессии");
         setLoading(false);
         return;
       }
@@ -111,19 +122,13 @@ export default function AdminPage() {
         .select("role")
         .eq("id", session.user.id);
 
-      console.log("PROFILES DATA:", data);
-      console.log("PROFILES ERROR:", error);
-
       if (error) {
-        setDebugInfo(`Ошибка: ${error.message}`);
+        console.error("Ошибка profiles:", error);
         setLoading(false);
         return;
       }
 
       const role = data?.[0]?.role || "user";
-
-      console.log("ROLE:", role);
-      setDebugInfo(`ID: ${session.user.id} | Role: ${role} | Data: ${JSON.stringify(data)}`);
 
       if (role !== "admin" && role !== "owner") {
         setLoading(false);
@@ -135,8 +140,7 @@ export default function AdminPage() {
       setLoading(false);
       subscribeToRealtime();
     } catch (error) {
-      console.error("Ошибка проверки роли:", error);
-      setDebugInfo(`Exception: ${error}`);
+      console.error("Ошибка checkAdmin:", error);
       setLoading(false);
     }
   }
@@ -296,7 +300,8 @@ export default function AdminPage() {
   }
 
   async function approveDeposit(deposit: DepositRequest) {
-    setActionLoading(deposit.id);
+    startAction(deposit.id);
+
     const netAmount = deposit.amount * 0.9;
 
     const { data: balanceData } = await supabase
@@ -307,8 +312,14 @@ export default function AdminPage() {
     const currentBalance = balanceData?.[0] ? Number(balanceData[0].balance) : 0;
 
     await Promise.all([
-      supabase.from("deposit_requests").update({ status: "approved" }).eq("id", deposit.id),
-      supabase.from("balances").update({ balance: currentBalance + netAmount }).eq("id", deposit.user_id),
+      supabase
+        .from("deposit_requests")
+        .update({ status: "approved" })
+        .eq("id", deposit.id),
+      supabase
+        .from("balances")
+        .update({ balance: currentBalance + netAmount })
+        .eq("id", deposit.user_id),
       supabase.from("transactions").insert([{
         user_id: deposit.user_id,
         type: "deposit",
@@ -317,30 +328,45 @@ export default function AdminPage() {
       }]),
     ]);
 
-    setDeposits((prev) => prev.map((d) => d.id === deposit.id ? { ...d, status: "approved" } : d));
-    setActionLoading(null);
+    setDeposits((prev) =>
+      prev.map((d) => d.id === deposit.id ? { ...d, status: "approved" } : d)
+    );
+
+    endAction(deposit.id);
   }
 
   async function rejectDeposit(id: number, reason: string) {
-    setActionLoading(id);
-    await supabase.from("deposit_requests")
+    startAction(id);
+
+    await supabase
+      .from("deposit_requests")
       .update({ status: "rejected", comment: reason })
       .eq("id", id);
-    setDeposits((prev) => prev.map((d) => d.id === id ? { ...d, status: "rejected", comment: reason } : d));
-    setActionLoading(null);
+
+    setDeposits((prev) =>
+      prev.map((d) => d.id === id ? { ...d, status: "rejected", comment: reason } : d)
+    );
+
+    endAction(id);
   }
 
   async function approveWithdrawal(withdrawal: WithdrawalRequest) {
-    setActionLoading(withdrawal.id);
-    await supabase.from("withdrawal_requests")
+    startAction(withdrawal.id);
+
+    await supabase
+      .from("withdrawal_requests")
       .update({ status: "approved", comment: "Средства отправлены" })
       .eq("id", withdrawal.id);
-    setWithdrawals((prev) => prev.map((w) => w.id === withdrawal.id ? { ...w, status: "approved" } : w));
-    setActionLoading(null);
+
+    setWithdrawals((prev) =>
+      prev.map((w) => w.id === withdrawal.id ? { ...w, status: "approved" } : w)
+    );
+
+    endAction(withdrawal.id);
   }
 
   async function rejectWithdrawal(withdrawal: WithdrawalRequest) {
-    setActionLoading(withdrawal.id);
+    startAction(withdrawal.id);
 
     const { data: balanceData } = await supabase
       .from("balances")
@@ -350,10 +376,12 @@ export default function AdminPage() {
     const currentBalance = balanceData?.[0] ? Number(balanceData[0].balance) : 0;
 
     await Promise.all([
-      supabase.from("withdrawal_requests")
+      supabase
+        .from("withdrawal_requests")
         .update({ status: "rejected", comment: "Отклонено администратором" })
         .eq("id", withdrawal.id),
-      supabase.from("balances")
+      supabase
+        .from("balances")
         .update({ balance: currentBalance + withdrawal.amount })
         .eq("id", withdrawal.user_id),
       supabase.from("transactions").insert([{
@@ -364,8 +392,11 @@ export default function AdminPage() {
       }]),
     ]);
 
-    setWithdrawals((prev) => prev.map((w) => w.id === withdrawal.id ? { ...w, status: "rejected" } : w));
-    setActionLoading(null);
+    setWithdrawals((prev) =>
+      prev.map((w) => w.id === withdrawal.id ? { ...w, status: "rejected" } : w)
+    );
+
+    endAction(withdrawal.id);
   }
 
   async function addBalance() {
@@ -376,7 +407,8 @@ export default function AdminPage() {
     if (!user) return;
 
     await Promise.all([
-      supabase.from("balances")
+      supabase
+        .from("balances")
         .update({ balance: user.balance + amountNum })
         .eq("id", selectedUser),
       supabase.from("transactions").insert([{
@@ -387,9 +419,12 @@ export default function AdminPage() {
       }]),
     ]);
 
-    setUsers((prev) => prev.map((u) =>
-      u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u
-    ));
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u
+      )
+    );
+
     setAmount("");
   }
 
@@ -405,7 +440,9 @@ export default function AdminPage() {
       return;
     }
     await supabase.from("profiles").update({ is_blocked: !blocked }).eq("id", userId);
-    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, is_blocked: !blocked } : u));
+    setUsers((prev) =>
+      prev.map((u) => u.id === userId ? { ...u, is_blocked: !blocked } : u)
+    );
   }
 
   async function toggleRole(userId: string, currentRole: string) {
@@ -422,12 +459,16 @@ export default function AdminPage() {
     if (!confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?")) return;
 
     await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
-    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
+    setUsers((prev) =>
+      prev.map((u) => u.id === userId ? { ...u, role: newRole } : u)
+    );
   }
 
   async function toggleModeration(id: number, current: boolean) {
     await supabase.from("products").update({ is_moderated: !current }).eq("id", id);
-    setProducts((prev) => prev.map((p) => p.id === id ? { ...p, is_moderated: !current } : p));
+    setProducts((prev) =>
+      prev.map((p) => p.id === id ? { ...p, is_moderated: !current } : p)
+    );
   }
 
   async function deleteProduct(id: number) {
@@ -447,13 +488,7 @@ export default function AdminPage() {
   if (!isAdmin) {
     return (
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <h1 className="text-3xl font-bold">Доступ запрещён</h1>
-          {/* Дебаг инфо — видна только в разработке */}
-          {debugInfo && (
-            <p className="text-zinc-500 text-xs max-w-md break-all">{debugInfo}</p>
-          )}
-        </div>
+        <h1 className="text-3xl font-bold">Доступ запрещён</h1>
       </main>
     );
   }
@@ -554,32 +589,33 @@ export default function AdminPage() {
                             <p className="text-cyan-400 text-xs mt-1">{dep.comment}</p>
                           )}
                         </div>
+
                         {dep.status === "pending" ? (
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => approveDeposit(dep)}
-                              disabled={actionLoading === dep.id}
+                              disabled={actionLoading.has(dep.id)}
                               className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 whitespace-nowrap"
                             >
-                              {actionLoading === dep.id ? "..." : "✓ Подтвердить"}
+                              {actionLoading.has(dep.id) ? "..." : "✓ Подтвердить"}
                             </button>
                             <button
                               onClick={() => rejectDeposit(dep.id, "❌ Сумма не совпадает")}
-                              disabled={actionLoading === dep.id}
+                              disabled={actionLoading.has(dep.id)}
                               className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
                             >
                               💰 Сумма не совпадает
                             </button>
                             <button
                               onClick={() => rejectDeposit(dep.id, "❌ Комментарий не указан")}
-                              disabled={actionLoading === dep.id}
+                              disabled={actionLoading.has(dep.id)}
                               className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
                             >
                               💬 Нет комментария
                             </button>
                             <button
                               onClick={() => rejectDeposit(dep.id, "❌ Отклонено администратором")}
-                              disabled={actionLoading === dep.id}
+                              disabled={actionLoading.has(dep.id)}
                               className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
                             >
                               ✕ Отклонить
@@ -591,6 +627,7 @@ export default function AdminPage() {
                           </span>
                         )}
                       </div>
+
                       {dep.status === "pending" && (
                         <div className="bg-zinc-800/50 rounded-xl p-3 text-xs text-zinc-400 space-y-1">
                           <p>📋 <span className="text-white font-medium">Что проверить:</span></p>
@@ -633,14 +670,14 @@ export default function AdminPage() {
                           <>
                             <button
                               onClick={() => approveWithdrawal(w)}
-                              disabled={actionLoading === w.id}
+                              disabled={actionLoading.has(w.id)}
                               className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
                             >
-                              {actionLoading === w.id ? "..." : "✓ Отправлено"}
+                              {actionLoading.has(w.id) ? "..." : "✓ Отправлено"}
                             </button>
                             <button
                               onClick={() => rejectWithdrawal(w)}
-                              disabled={actionLoading === w.id}
+                              disabled={actionLoading.has(w.id)}
                               className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
                             >
                               ✕ Отклонить
