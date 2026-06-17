@@ -60,6 +60,7 @@ export default function AdminPage() {
   const [myRole, setMyRole] = useState("user");
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState("");
 
   const [users, setUsers] = useState<UserData[]>([]);
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
@@ -97,18 +98,32 @@ export default function AdminPage() {
         data: { session },
       } = await supabase.auth.getSession();
 
+      console.log("SESSION:", session?.user?.id, session?.user?.email);
+
       if (!session?.user) {
+        setDebugInfo("Нет сессии");
         setLoading(false);
         return;
       }
 
-      // Без maybeSingle — используем массив
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", session.user.id);
 
+      console.log("PROFILES DATA:", data);
+      console.log("PROFILES ERROR:", error);
+
+      if (error) {
+        setDebugInfo(`Ошибка: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
       const role = data?.[0]?.role || "user";
+
+      console.log("ROLE:", role);
+      setDebugInfo(`ID: ${session.user.id} | Role: ${role} | Data: ${JSON.stringify(data)}`);
 
       if (role !== "admin" && role !== "owner") {
         setLoading(false);
@@ -121,6 +136,7 @@ export default function AdminPage() {
       subscribeToRealtime();
     } catch (error) {
       console.error("Ошибка проверки роли:", error);
+      setDebugInfo(`Exception: ${error}`);
       setLoading(false);
     }
   }
@@ -431,7 +447,13 @@ export default function AdminPage() {
   if (!isAdmin) {
     return (
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <h1 className="text-3xl font-bold">Доступ запрещён</h1>
+        <div className="text-center space-y-4">
+          <h1 className="text-3xl font-bold">Доступ запрещён</h1>
+          {/* Дебаг инфо — видна только в разработке */}
+          {debugInfo && (
+            <p className="text-zinc-500 text-xs max-w-md break-all">{debugInfo}</p>
+          )}
+        </div>
       </main>
     );
   }
