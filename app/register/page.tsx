@@ -10,9 +10,12 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function ensureUserData(userId: string, userEmail: string, userName: string) {
+  async function ensureUserData(
+    userId: string,
+    userEmail: string,
+    userName: string
+  ) {
     try {
-      // Проверяем profiles
       const { data: existingProfile } = await supabase
         .from("profiles")
         .select("id")
@@ -30,7 +33,6 @@ export default function RegisterPage() {
         ]);
       }
 
-      // Проверяем balances
       const { data: existingBalance } = await supabase
         .from("balances")
         .select("id")
@@ -68,20 +70,34 @@ export default function RegisterPage() {
 
     setLoading(true);
 
-    // Проверяем занят ли никнейм
-    const { data: takenProfile } = await supabase
+    // Проверяем занят ли никнейм — только среди реально существующих пользователей
+    const { data: takenProfiles } = await supabase
       .from("profiles")
-      .select("id")
+      .select("id, username")
       .eq("username", cleanUsername);
 
-    if (takenProfile && takenProfile.length > 0) {
-      alert("Такой никнейм уже занят");
-      setLoading(false);
-      return;
+    if (takenProfiles && takenProfiles.length > 0) {
+      // Проверяем что этот пользователь реально существует в auth.users
+      const { data: authUser } = await supabase
+        .from("balances")
+        .select("id")
+        .eq("id", takenProfiles[0].id);
+
+      if (authUser && authUser.length > 0) {
+        alert("Такой никнейм уже занят");
+        setLoading(false);
+        return;
+      } else {
+        // Профиль есть но пользователя нет — удаляем старый профиль
+        await supabase
+          .from("profiles")
+          .delete()
+          .eq("username", cleanUsername);
+      }
     }
 
     // Регистрация
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
@@ -92,7 +108,11 @@ export default function RegisterPage() {
     });
 
     if (signUpError) {
-      alert(signUpError.message);
+      if (signUpError.message.includes("already registered")) {
+        alert("Этот email уже зарегистрирован");
+      } else {
+        alert(signUpError.message);
+      }
       setLoading(false);
       return;
     }
@@ -130,7 +150,9 @@ export default function RegisterPage() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">Никнейм</label>
+              <label className="block text-sm text-zinc-400 mb-2">
+                Никнейм
+              </label>
               <input
                 type="text"
                 value={username}

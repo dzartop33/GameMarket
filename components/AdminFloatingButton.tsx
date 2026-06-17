@@ -3,13 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { getCache, setCache } from "@/lib/cache";
+import { getCache, setCache, clearCache } from "@/lib/cache";
 
 type Role = "user" | "admin" | "owner" | null;
 
 export default function AdminFloatingButton() {
-  const cachedRole = getCache("user-role") as Role | null;
-  const [role, setRole] = useState<Role>(cachedRole);
+  const [role, setRole] = useState<Role>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [stats, setStats] = useState({
     pendingDeposits: 0,
@@ -22,13 +21,36 @@ export default function AdminFloatingButton() {
   const [statsLoaded, setStatsLoaded] = useState(false);
 
   useEffect(() => {
-    if (!cachedRole) {
-      loadRole();
-    }
+    loadRole();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        clearCache("user-role");
+        setRole(null);
+        setIsOpen(false);
+        return;
+      }
+      if (event === "SIGNED_IN") {
+        loadRole();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function loadRole() {
     try {
+      // Сначала проверяем кэш
+      const cached = getCache("user-role") as Role | null;
+      if (cached) {
+        setRole(cached);
+        return;
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -43,7 +65,7 @@ export default function AdminFloatingButton() {
         .select("role")
         .eq("id", session.user.id);
 
-      const foundRole = data?.[0]?.role || "user";
+      const foundRole = (data?.[0]?.role as Role) || "user";
 
       if (foundRole === "admin" || foundRole === "owner") {
         setRole(foundRole);
@@ -60,25 +82,26 @@ export default function AdminFloatingButton() {
     if (statsLoaded || !role) return;
 
     try {
-      const [deposits, withdrawals, users, products, deals] = await Promise.all([
-        supabase
-          .from("deposit_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
-        supabase
-          .from("withdrawal_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "pending"),
-        supabase
-          .from("balances")
-          .select("id", { count: "exact", head: true }),
-        supabase
-          .from("products")
-          .select("id", { count: "exact", head: true }),
-        supabase
-          .from("deals")
-          .select("id", { count: "exact", head: true }),
-      ]);
+      const [deposits, withdrawals, users, products, deals] =
+        await Promise.all([
+          supabase
+            .from("deposit_requests")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pending"),
+          supabase
+            .from("withdrawal_requests")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pending"),
+          supabase
+            .from("balances")
+            .select("id", { count: "exact", head: true }),
+          supabase
+            .from("products")
+            .select("id", { count: "exact", head: true }),
+          supabase
+            .from("deals")
+            .select("id", { count: "exact", head: true }),
+        ]);
 
       let totalRevenue = 0;
 
@@ -134,8 +157,7 @@ export default function AdminFloatingButton() {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-[9999] w-72 max-h-[70vh] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-zinc-700">
-          {/* Заголовок */}
+        <div className="fixed bottom-24 right-6 z-[9999] w-72 max-h-[70vh] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl">
           <div
             className={`p-4 sticky top-0 z-10 ${
               isOwner
@@ -148,7 +170,6 @@ export default function AdminFloatingButton() {
             </p>
           </div>
 
-          {/* Статистика */}
           <div className="p-3 border-b border-zinc-800">
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
@@ -178,7 +199,6 @@ export default function AdminFloatingButton() {
             </div>
           </div>
 
-          {/* Общие функции */}
           <div className="p-2">
             <p className="text-zinc-500 text-[10px] uppercase tracking-wider px-2 py-1">
               Управление
@@ -254,7 +274,6 @@ export default function AdminFloatingButton() {
             </Link>
           </div>
 
-          {/* Только для owner */}
           {isOwner && (
             <div className="p-2 border-t border-yellow-500/20">
               <p className="text-yellow-500 text-[10px] uppercase tracking-wider px-2 py-1">
@@ -282,7 +301,7 @@ export default function AdminFloatingButton() {
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm">
                 <span>💵</span>
                 <span>Доход площадки</span>
-                <span className="ml-auto text-green-400 font-bold text-sm">
+                <span className="ml-auto text-green-400 font-bold">
                   {statsLoaded ? `${stats.totalRevenue.toFixed(0)} ₽` : "—"}
                 </span>
               </div>
@@ -291,7 +310,6 @@ export default function AdminFloatingButton() {
         </div>
       )}
 
-      {/* Кнопка */}
       <button
         onClick={handleToggle}
         className={`fixed bottom-6 right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform ${

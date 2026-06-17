@@ -17,7 +17,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   global: {
     fetch: (url, options) => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      // Увеличили таймаут до 15 секунд
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
       return fetch(url, {
         ...options,

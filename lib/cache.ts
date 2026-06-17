@@ -1,6 +1,7 @@
 const cache = new Map<string, { data: any; time: number }>();
 
-const CACHE_TTL = 30000;
+// Увеличили TTL до 5 минут
+const CACHE_TTL = 5 * 60 * 1000;
 
 export function getCache(key: string) {
   const entry = cache.get(key);
