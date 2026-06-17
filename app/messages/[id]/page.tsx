@@ -37,10 +37,7 @@ export default function ChatPage({
           filter: `chat_id=eq.${id}`,
         },
         (payload) => {
-          setMessages((prev) => [
-            ...prev,
-            payload.new as Message,
-          ]);
+          setMessages((prev) => [...prev, payload.new as Message]);
         }
       )
       .subscribe();
@@ -51,26 +48,32 @@ export default function ChatPage({
   }, [id]);
 
   async function loadMessages() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    try {
+      // Используем getSession вместо getUser
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!user) {
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
+
+      setEmail(session.user.email || "");
+      setUserId(session.user.id);
+
+      const { data } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("chat_id", Number(id))
+        .order("created_at", { ascending: true });
+
+      setMessages(data || []);
       setLoading(false);
-      return;
+    } catch (error) {
+      console.error("Ошибка загрузки сообщений:", error);
+      setLoading(false);
     }
-
-    setEmail(user.email || "");
-    setUserId(user.id);
-
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("chat_id", Number(id))
-      .order("created_at", { ascending: true });
-
-    setMessages(data || []);
-    setLoading(false);
   }
 
   async function sendMessage(e: React.FormEvent) {
@@ -78,22 +81,24 @@ export default function ChatPage({
 
     if (!text.trim()) return;
 
-    await supabase.from("messages").insert([
-      {
+    try {
+      await supabase.from("messages").insert([{
         chat_id: Number(id),
         sender_id: userId,
         sender_email: email,
         text: text.trim(),
-      },
-    ]);
+      }]);
 
-    setText("");
+      setText("");
+    } catch (error) {
+      console.error("Ошибка отправки:", error);
+    }
   }
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-white p-10">
-        Загрузка...
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </main>
     );
   }
@@ -101,16 +106,12 @@ export default function ChatPage({
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-3xl mx-auto px-6 py-12">
-        <h1 className="text-2xl font-bold mb-6">
-          Диалог
-        </h1>
+        <h1 className="text-2xl font-bold mb-6">Диалог</h1>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 min-h-[400px] flex flex-col">
           <div className="flex-1 space-y-4 mb-6 overflow-y-auto max-h-[500px]">
             {messages.length === 0 ? (
-              <p className="text-zinc-400">
-                Напишите первое сообщение
-              </p>
+              <p className="text-zinc-400">Напишите первое сообщение</p>
             ) : (
               messages.map((msg) => (
                 <div
@@ -121,20 +122,17 @@ export default function ChatPage({
                       : "bg-zinc-800"
                   }`}
                 >
-                  <p className="text-xs opacity-70 mb-1">
-                    {msg.sender_email}
-                  </p>
-
+                  <p className="text-xs opacity-70 mb-1">{msg.sender_email}</p>
                   <p>{msg.text}</p>
+                  <p className="text-xs opacity-50 mt-1">
+                    {new Date(msg.created_at).toLocaleTimeString("ru")}
+                  </p>
                 </div>
               ))
             )}
           </div>
 
-          <form
-            onSubmit={sendMessage}
-            className="flex gap-3"
-          >
+          <form onSubmit={sendMessage} className="flex gap-3">
             <input
               type="text"
               value={text}
@@ -142,10 +140,10 @@ export default function ChatPage({
               placeholder="Введите сообщение..."
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4 outline-none focus:border-cyan-500 transition"
             />
-
             <button
               type="submit"
-              className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 rounded-xl font-bold"
+              disabled={!text.trim()}
+              className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 rounded-xl font-bold disabled:opacity-50"
             >
               →
             </button>

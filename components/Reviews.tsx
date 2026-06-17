@@ -12,11 +12,7 @@ type Review = {
   created_at: string;
 };
 
-export default function Reviews({
-  sellerId,
-}: {
-  sellerId: string;
-}) {
+export default function Reviews({ sellerId }: { sellerId: string }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -29,95 +25,99 @@ export default function Reviews({
   }, []);
 
   async function loadUser() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    setCurrentUserId(session?.user?.id || null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setCurrentUserId(session?.user?.id || null);
+    } catch {
+      setCurrentUserId(null);
+    }
   }
 
   async function loadReviews() {
-    const { data } = await supabase
-      .from("reviews")
-      .select("*")
-      .eq("seller_id", sellerId)
-      .order("created_at", { ascending: false });
-
-    setReviews(data || []);
+    try {
+      const { data } = await supabase
+        .from("reviews")
+        .select("*")
+        .eq("seller_id", sellerId)
+        .order("created_at", { ascending: false });
+      setReviews(data || []);
+    } catch {
+      setReviews([]);
+    }
   }
 
   async function submitReview(e: React.FormEvent) {
     e.preventDefault();
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!session?.user) {
-      alert("Необходимо войти в аккаунт");
-      return;
+      if (!session?.user) {
+        alert("Необходимо войти в аккаунт");
+        return;
+      }
+
+      if (session.user.id === sellerId) {
+        alert("Нельзя оставить отзыв самому себе");
+        return;
+      }
+
+      setLoading(true);
+
+      // Используем массив вместо maybeSingle
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", session.user.id);
+
+      const username =
+        profileData?.[0]?.username ||
+        session.user.email?.split("@")[0] ||
+        "user";
+
+      const { error } = await supabase.from("reviews").insert([{
+        seller_id: sellerId,
+        author_id: session.user.id,
+        author_username: username,
+        rating,
+        comment,
+      }]);
+
+      setLoading(false);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      setComment("");
+      setRating(5);
+      loadReviews();
+    } catch (error) {
+      console.error("Ошибка отправки отзыва:", error);
+      setLoading(false);
     }
-
-    if (session.user.id === sellerId) {
-      alert("Нельзя оставить отзыв самому себе");
-      return;
-    }
-
-    setLoading(true);
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    const username =
-      profile?.username ||
-      session.user.email?.split("@")[0] ||
-      "user";
-
-    const { error } = await supabase
-      .from("reviews")
-      .insert([
-        {
-          seller_id: sellerId,
-          author_id: session.user.id,
-          author_username: username,
-          rating,
-          comment,
-        },
-      ]);
-
-    setLoading(false);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setComment("");
-    setRating(5);
-    loadReviews();
   }
 
   async function deleteReview(reviewId: number) {
-    const confirmed = confirm("Удалить отзыв?");
+    if (!confirm("Удалить отзыв?")) return;
 
-    if (!confirmed) return;
-
-    await supabase
-      .from("reviews")
-      .delete()
-      .eq("id", reviewId);
-
-    loadReviews();
+    try {
+      await supabase.from("reviews").delete().eq("id", reviewId);
+      loadReviews();
+    } catch (error) {
+      console.error("Ошибка удаления отзыва:", error);
+    }
   }
 
   const avgRating =
     reviews.length > 0
       ? (
-          reviews.reduce((sum, r) => sum + r.rating, 0) /
-          reviews.length
+          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
         ).toFixed(1)
       : "0";
 
@@ -125,7 +125,6 @@ export default function Reviews({
     <div className="mt-12">
       <div className="flex items-center gap-4 mb-6">
         <h2 className="text-2xl font-bold">Отзывы</h2>
-
         <span className="text-cyan-400">
           ★ {avgRating} ({reviews.length})
         </span>
@@ -141,10 +140,8 @@ export default function Reviews({
               key={star}
               type="button"
               onClick={() => setRating(star)}
-              className={`text-2xl ${
-                star <= rating
-                  ? "text-yellow-400"
-                  : "text-zinc-600"
+              className={`text-2xl transition ${
+                star <= rating ? "text-yellow-400" : "text-zinc-600"
               }`}
             >
               ★
@@ -164,7 +161,7 @@ export default function Reviews({
         <button
           type="submit"
           disabled={loading}
-          className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-3 rounded-xl font-bold"
+          className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-3 rounded-xl font-bold disabled:opacity-50"
         >
           {loading ? "Отправка..." : "Отправить отзыв"}
         </button>
@@ -180,16 +177,12 @@ export default function Reviews({
               className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"
             >
               <div className="flex items-center justify-between">
-                <p className="font-semibold">
-                  {review.author_username}
-                </p>
-
+                <p className="font-semibold">{review.author_username}</p>
                 <div className="flex items-center gap-3">
                   <span className="text-yellow-400">
                     {"★".repeat(review.rating)}
                     {"☆".repeat(5 - review.rating)}
                   </span>
-
                   {currentUserId === review.author_id && (
                     <button
                       onClick={() => deleteReview(review.id)}
@@ -200,9 +193,9 @@ export default function Reviews({
                   )}
                 </div>
               </div>
-
-              <p className="text-zinc-300 mt-2">
-                {review.comment}
+              <p className="text-zinc-300 mt-2">{review.comment}</p>
+              <p className="text-zinc-500 text-xs mt-1">
+                {new Date(review.created_at).toLocaleString("ru")}
               </p>
             </div>
           ))

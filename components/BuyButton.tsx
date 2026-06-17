@@ -21,96 +21,96 @@ export default function BuyButton({
   const [loading, setLoading] = useState(false);
 
   async function handleBuy() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!session?.user) {
-      alert("Необходимо войти в аккаунт");
-      return;
-    }
+      if (!session?.user) {
+        alert("Необходимо войти в аккаунт");
+        return;
+      }
 
-    if (session.user.id === sellerId) {
-      alert("Нельзя купить свой товар");
-      return;
-    }
+      if (session.user.id === sellerId) {
+        alert("Нельзя купить свой товар");
+        return;
+      }
 
-    const priceNum = parseFloat(price.replace(/[^\d.]/g, ""));
+      const priceNum = parseFloat(price.replace(/[^\d.]/g, ""));
 
-    if (isNaN(priceNum) || priceNum <= 0) {
-      alert("Некорректная цена");
-      return;
-    }
+      if (isNaN(priceNum) || priceNum <= 0) {
+        alert("Некорректная цена");
+        return;
+      }
 
-    const confirmed = confirm(
-      `Купить "${productTitle}" за ${priceNum.toFixed(2)} ₽?\n\nСумма будет списана с вашего баланса.`
-    );
-
-    if (!confirmed) return;
-
-    setLoading(true);
-
-    const { data: buyerBalance } = await supabase
-      .from("balances")
-      .select("balance")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!buyerBalance || Number(buyerBalance.balance) < priceNum) {
-      alert(
-        `Недостаточно средств.\n\nБаланс: ${
-          buyerBalance ? Number(buyerBalance.balance).toFixed(2) : "0.00"
-        } ₽\nЦена: ${priceNum.toFixed(2)} ₽`
+      const confirmed = confirm(
+        `Купить "${productTitle}" за ${priceNum.toFixed(2)} ₽?\n\nСумма будет списана с вашего баланса.`
       );
-      setLoading(false);
-      return;
-    }
 
-    const { data: existingDeal } = await supabase
-      .from("deals")
-      .select("id")
-      .eq("product_id", productId)
-      .eq("buyer_id", session.user.id)
-      .in("status", ["pending", "paid", "in_progress"])
-      .maybeSingle();
+      if (!confirmed) return;
 
-    if (existingDeal) {
-      alert("У вас уже есть активная сделка");
-      setLoading(false);
-      return;
-    }
+      setLoading(true);
 
-    const { error: transferError } = await supabase.rpc("transfer_funds", {
-      buyer_id_input: session.user.id,
-      seller_id_input: sellerId,
-      amount_input: priceNum,
-    });
+      // Используем массив вместо .single()
+      const { data: balanceData } = await supabase
+        .from("balances")
+        .select("balance")
+        .eq("id", session.user.id);
 
-    if (transferError) {
-      alert(transferError.message);
-      setLoading(false);
-      return;
-    }
+      const buyerBalance = balanceData?.[0];
 
-    const insertPromises = [
-      supabase.from("transactions").insert([
-        {
+      if (!buyerBalance || Number(buyerBalance.balance) < priceNum) {
+        alert(
+          `Недостаточно средств.\n\nБаланс: ${
+            buyerBalance ? Number(buyerBalance.balance).toFixed(2) : "0.00"
+          } ₽\nЦена: ${priceNum.toFixed(2)} ₽`
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Проверяем существующую сделку
+      const { data: existingDeals } = await supabase
+        .from("deals")
+        .select("id")
+        .eq("product_id", productId)
+        .eq("buyer_id", session.user.id)
+        .in("status", ["pending", "paid", "in_progress"]);
+
+      if (existingDeals && existingDeals.length > 0) {
+        alert("У вас уже есть активная сделка по этому товару");
+        setLoading(false);
+        return;
+      }
+
+      // Переводим деньги
+      const { error: transferError } = await supabase.rpc("transfer_funds", {
+        buyer_id_input: session.user.id,
+        seller_id_input: sellerId,
+        amount_input: priceNum,
+      });
+
+      if (transferError) {
+        alert(transferError.message);
+        setLoading(false);
+        return;
+      }
+
+      // Записываем транзакции и сделку параллельно
+      await Promise.all([
+        supabase.from("transactions").insert([{
           user_id: session.user.id,
           type: "purchase",
           amount: priceNum,
           description: `Покупка: ${productTitle}`,
-        },
-      ]),
-      supabase.from("transactions").insert([
-        {
+        }]),
+        supabase.from("transactions").insert([{
           user_id: sellerId,
           type: "sale",
           amount: priceNum,
           description: `Продажа: ${productTitle}`,
-        },
-      ]),
-      supabase.from("deals").insert([
-        {
+        }]),
+        supabase.from("deals").insert([{
           product_id: productId,
           buyer_id: session.user.id,
           seller_id: sellerId,
@@ -119,22 +119,24 @@ export default function BuyButton({
           product_title: productTitle,
           price: price,
           status: "paid",
-        },
-      ]),
-    ];
+        }]),
+      ]);
 
-    await Promise.all(insertPromises);
-
-    setLoading(false);
-    alert("Покупка успешна!");
-    window.location.assign("/deals");
+      setLoading(false);
+      alert("Покупка успешна!");
+      window.location.assign("/deals");
+    } catch (error) {
+      console.error("Ошибка покупки:", error);
+      alert("Произошла ошибка. Попробуйте снова.");
+      setLoading(false);
+    }
   }
 
   return (
     <button
       onClick={handleBuy}
       disabled={loading}
-      className="flex-1 px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold hover:opacity-90 transition"
+      className="flex-1 px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold hover:opacity-90 transition disabled:opacity-50"
     >
       {loading ? "Оплата..." : "Купить сейчас"}
     </button>
