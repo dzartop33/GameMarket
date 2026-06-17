@@ -1,31 +1,57 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { getCache, setCache, clearCache } from "@/lib/cache";
 
 type Role = "user" | "admin" | "owner" | null;
 
-export default function AdminFloatingButton() {
-  const [role, setRole] = useState<Role>(
-    (getCache("user-role") as Role) || null
-  );
-  const [isOpen, setIsOpen] = useState(false);
-  const [stats, setStats] = useState(
-    (getCache("admin-stats") as any) || {
+// Читаем роль из кэша ВНЕ компонента — до рендера
+function getRoleFromCache(): Role {
+  try {
+    return (getCache("user-role") as Role) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getStatsFromCache() {
+  try {
+    return (
+      getCache("admin-stats") || {
+        pendingDeposits: 0,
+        pendingWithdrawals: 0,
+        totalUsers: 0,
+        totalProducts: 0,
+        totalDeals: 0,
+        totalRevenue: 0,
+      }
+    );
+  } catch {
+    return {
       pendingDeposits: 0,
       pendingWithdrawals: 0,
       totalUsers: 0,
       totalProducts: 0,
       totalDeals: 0,
       totalRevenue: 0,
-    }
-  );
+    };
+  }
+}
+
+export default function AdminFloatingButton() {
+  const [role, setRole] = useState<Role>(getRoleFromCache);
+  const [isOpen, setIsOpen] = useState(false);
+  const [stats, setStats] = useState(getStatsFromCache);
   const [statsLoaded, setStatsLoaded] = useState(!!getCache("admin-stats"));
+  const [, startTransition] = useTransition();
 
   useEffect(() => {
-    loadRole();
+    // Если роли нет в кэше — загружаем в фоне
+    if (!role) {
+      loadRoleBackground();
+    }
 
     const {
       data: { subscription },
@@ -35,26 +61,27 @@ export default function AdminFloatingButton() {
         clearCache("admin-stats");
         setRole(null);
         setIsOpen(false);
+        setStats({
+          pendingDeposits: 0,
+          pendingWithdrawals: 0,
+          totalUsers: 0,
+          totalProducts: 0,
+          totalDeals: 0,
+          totalRevenue: 0,
+        });
+        setStatsLoaded(false);
         return;
       }
       if (event === "SIGNED_IN") {
-        loadRole();
+        loadRoleBackground();
       }
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  async function loadRole() {
+  async function loadRoleBackground() {
     try {
-      const cached = getCache("user-role") as Role | null;
-      if (cached) {
-        setRole(cached);
-        return;
-      }
-
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -72,7 +99,9 @@ export default function AdminFloatingButton() {
       const foundRole = (data?.[0]?.role as Role) || "user";
 
       if (foundRole === "admin" || foundRole === "owner") {
-        setRole(foundRole);
+        startTransition(() => {
+          setRole(foundRole);
+        });
         setCache("user-role", foundRole);
       } else {
         setRole(null);
@@ -134,8 +163,11 @@ export default function AdminFloatingButton() {
         totalRevenue,
       };
 
-      setStats(newStats);
-      setStatsLoaded(true);
+      startTransition(() => {
+        setStats(newStats);
+        setStatsLoaded(true);
+      });
+
       setCache("admin-stats", newStats);
     } catch {}
   }
@@ -143,9 +175,7 @@ export default function AdminFloatingButton() {
   function handleToggle() {
     const next = !isOpen;
     setIsOpen(next);
-    if (next) {
-      loadStats();
-    }
+    if (next) loadStats();
   }
 
   if (!role) return null;
@@ -164,11 +194,12 @@ export default function AdminFloatingButton() {
 
       {isOpen && (
         <div className="fixed bottom-24 right-6 z-[9999] w-72 max-h-[70vh] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl">
+          {/* Заголовок */}
           <div
-            className={`p-4 sticky top-0 z-10 ${
+            className={`p-4 sticky top-0 z-10 bg-zinc-900 ${
               isOwner
-                ? "bg-zinc-900 border-b border-yellow-500/20"
-                : "bg-zinc-900 border-b border-red-500/20"
+                ? "border-b border-yellow-500/20"
+                : "border-b border-red-500/20"
             }`}
           >
             <p className="font-bold text-sm">
@@ -176,6 +207,7 @@ export default function AdminFloatingButton() {
             </p>
           </div>
 
+          {/* Статистика */}
           <div className="p-3 border-b border-zinc-800">
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
@@ -199,6 +231,7 @@ export default function AdminFloatingButton() {
             </div>
           </div>
 
+          {/* Кнопки — показываются мгновенно */}
           <div className="p-2">
             <p className="text-zinc-500 text-[10px] uppercase tracking-wider px-2 py-1">
               Управление
@@ -274,6 +307,7 @@ export default function AdminFloatingButton() {
             </Link>
           </div>
 
+          {/* Только для owner */}
           {isOwner && (
             <div className="p-2 border-t border-yellow-500/20">
               <p className="text-yellow-500 text-[10px] uppercase tracking-wider px-2 py-1">
@@ -310,6 +344,7 @@ export default function AdminFloatingButton() {
         </div>
       )}
 
+      {/* Кнопка */}
       <button
         onClick={handleToggle}
         className={`fixed bottom-6 right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform ${
