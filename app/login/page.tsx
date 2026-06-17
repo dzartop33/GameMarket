@@ -11,10 +11,9 @@ export default function LoginPage() {
 
   async function ensureUserData(userId: string, userEmail: string) {
     try {
-      // Проверяем profiles
       const { data: existingProfile } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, username, email")
         .eq("id", userId);
 
       if (!existingProfile || existingProfile.length === 0) {
@@ -27,9 +26,14 @@ export default function LoginPage() {
             is_blocked: false,
           },
         ]);
+      } else if (!existingProfile[0].email) {
+        // Если email пустой — обновляем
+        await supabase
+          .from("profiles")
+          .update({ email: userEmail })
+          .eq("id", userId);
       }
 
-      // Проверяем balances
       const { data: existingBalance } = await supabase
         .from("balances")
         .select("id")
@@ -71,6 +75,12 @@ export default function LoginPage() {
       }
 
       emailToUse = profiles[0].email;
+
+      if (!emailToUse) {
+        alert("У этого аккаунта не привязана почта. Попробуйте войти через email.");
+        setLoading(false);
+        return;
+      }
     }
 
     // Входим
@@ -80,7 +90,11 @@ export default function LoginPage() {
     });
 
     if (error) {
-      alert(error.message);
+      if (error.message === "Invalid login credentials") {
+        alert("Неверный логин или пароль");
+      } else {
+        alert(error.message);
+      }
       setLoading(false);
       return;
     }
