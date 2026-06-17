@@ -57,6 +57,7 @@ type Deal = {
 export default function AdminPage() {
   const [tab, setTab] = useState("deposits");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [myRole, setMyRole] = useState("user");
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
 
@@ -106,11 +107,14 @@ export default function AdminPage() {
       .eq("id", session.user.id)
       .maybeSingle();
 
-    if (data?.role !== "admin") {
+    const role = data?.role || "user";
+
+    if (role !== "admin" && role !== "owner") {
       setLoading(false);
       return;
     }
 
+    setMyRole(role);
     setIsAdmin(true);
     setLoading(false);
     subscribeToRealtime();
@@ -129,7 +133,7 @@ export default function AdminPage() {
         (payload) => {
           const newDeposit = payload.new as DepositRequest;
           setDeposits((prev) => [newDeposit, ...prev]);
-          showAlert(`💰 Новая заявка на пополнение: ${newDeposit.amount} ₽ от ${newDeposit.user_email}`);
+          showAlert(`💰 Новая заявка: ${newDeposit.amount} ₽ от ${newDeposit.user_email}`);
         }
       )
       .on(
@@ -137,18 +141,16 @@ export default function AdminPage() {
         { event: "UPDATE", schema: "public", table: "deposit_requests" },
         (payload) => {
           const updated = payload.new as DepositRequest;
-          setDeposits((prev) =>
-            prev.map((d) => (d.id === updated.id ? updated : d))
-          );
+          setDeposits((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
         }
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "withdrawal_requests" },
         (payload) => {
-          const newWithdrawal = payload.new as WithdrawalRequest;
-          setWithdrawals((prev) => [newWithdrawal, ...prev]);
-          showAlert(`💸 Новая заявка на вывод: ${newWithdrawal.amount} ₽ от ${newWithdrawal.user_email}`);
+          const newW = payload.new as WithdrawalRequest;
+          setWithdrawals((prev) => [newW, ...prev]);
+          showAlert(`💸 Новая заявка на вывод: ${newW.amount} ₽ от ${newW.user_email}`);
         }
       )
       .on(
@@ -156,17 +158,14 @@ export default function AdminPage() {
         { event: "UPDATE", schema: "public", table: "withdrawal_requests" },
         (payload) => {
           const updated = payload.new as WithdrawalRequest;
-          setWithdrawals((prev) =>
-            prev.map((w) => (w.id === updated.id ? updated : w))
-          );
+          setWithdrawals((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
         }
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "products" },
         (payload) => {
-          const newProduct = payload.new as Product;
-          setProducts((prev) => [newProduct, ...prev]);
+          setProducts((prev) => [payload.new as Product, ...prev]);
         }
       )
       .on(
@@ -191,9 +190,7 @@ export default function AdminPage() {
         { event: "UPDATE", schema: "public", table: "deals" },
         (payload) => {
           const updated = payload.new as Deal;
-          setDeals((prev) =>
-            prev.map((d) => (d.id === updated.id ? updated : d))
-          );
+          setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
         }
       )
       .subscribe();
@@ -204,7 +201,6 @@ export default function AdminPage() {
   function showAlert(message: string) {
     setNewAlert(message);
     setTimeout(() => setNewAlert(""), 5000);
-
     try {
       const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkZeYl5GJfXFkV0xDPDk5PUNLVWBqdH+IkJaZmZeTi4F2amBWTkdCPz9DR01WYGp0f4iQlpmZk4uBdmhfVU5HQj9AQ0dOV2FrdYCJkZaZmZOKgXZoX1VOR0I/QENHUF5p");
       audio.volume = 0.3;
@@ -276,182 +272,112 @@ export default function AdminPage() {
 
   async function approveDeposit(deposit: DepositRequest) {
     setActionLoading(deposit.id);
-
     const netAmount = deposit.amount * 0.9;
-
     const { data: balanceData } = await supabase
-      .from("balances")
-      .select("balance")
-      .eq("id", deposit.user_id)
-      .single();
-
+      .from("balances").select("balance").eq("id", deposit.user_id).single();
     const currentBalance = balanceData ? Number(balanceData.balance) : 0;
 
     await Promise.all([
-      supabase
-        .from("deposit_requests")
-        .update({ status: "approved" })
-        .eq("id", deposit.id),
-      supabase
-        .from("balances")
-        .update({ balance: currentBalance + netAmount })
-        .eq("id", deposit.user_id),
-      supabase.from("transactions").insert([
-        {
-          user_id: deposit.user_id,
-          type: "deposit",
-          amount: netAmount,
-          description: `СБП (${deposit.amount} ₽ → ${netAmount.toFixed(2)} ₽)`,
-        },
-      ]),
+      supabase.from("deposit_requests").update({ status: "approved" }).eq("id", deposit.id),
+      supabase.from("balances").update({ balance: currentBalance + netAmount }).eq("id", deposit.user_id),
+      supabase.from("transactions").insert([{
+        user_id: deposit.user_id, type: "deposit", amount: netAmount,
+        description: `СБП (${deposit.amount} ₽ → ${netAmount.toFixed(2)} ₽)`,
+      }]),
     ]);
 
-    setDeposits((prev) =>
-      prev.map((d) =>
-        d.id === deposit.id ? { ...d, status: "approved" } : d
-      )
-    );
-
+    setDeposits((prev) => prev.map((d) => d.id === deposit.id ? { ...d, status: "approved" } : d));
     setActionLoading(null);
   }
 
   async function rejectDeposit(id: number, reason: string) {
     setActionLoading(id);
-
-    await supabase
-      .from("deposit_requests")
-      .update({ status: "rejected", comment: reason })
-      .eq("id", id);
-
-    setDeposits((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status: "rejected", comment: reason } : d
-      )
-    );
-
+    await supabase.from("deposit_requests").update({ status: "rejected", comment: reason }).eq("id", id);
+    setDeposits((prev) => prev.map((d) => d.id === id ? { ...d, status: "rejected", comment: reason } : d));
     setActionLoading(null);
   }
 
   async function approveWithdrawal(withdrawal: WithdrawalRequest) {
     setActionLoading(withdrawal.id);
-
-    await supabase
-      .from("withdrawal_requests")
-      .update({ status: "approved", comment: "Средства отправлены" })
-      .eq("id", withdrawal.id);
-
-    setWithdrawals((prev) =>
-      prev.map((w) =>
-        w.id === withdrawal.id ? { ...w, status: "approved" } : w
-      )
-    );
-
+    await supabase.from("withdrawal_requests")
+      .update({ status: "approved", comment: "Средства отправлены" }).eq("id", withdrawal.id);
+    setWithdrawals((prev) => prev.map((w) => w.id === withdrawal.id ? { ...w, status: "approved" } : w));
     setActionLoading(null);
   }
 
   async function rejectWithdrawal(withdrawal: WithdrawalRequest) {
     setActionLoading(withdrawal.id);
-
     const { data: balanceData } = await supabase
-      .from("balances")
-      .select("balance")
-      .eq("id", withdrawal.user_id)
-      .single();
-
+      .from("balances").select("balance").eq("id", withdrawal.user_id).single();
     const currentBalance = balanceData ? Number(balanceData.balance) : 0;
 
     await Promise.all([
-      supabase
-        .from("withdrawal_requests")
-        .update({ status: "rejected", comment: "Отклонено администратором" })
-        .eq("id", withdrawal.id),
-      supabase
-        .from("balances")
-        .update({ balance: currentBalance + withdrawal.amount })
-        .eq("id", withdrawal.user_id),
-      supabase.from("transactions").insert([
-        {
-          user_id: withdrawal.user_id,
-          type: "refund",
-          amount: withdrawal.amount,
-          description: `Возврат за отклонённый вывод #${withdrawal.id}`,
-        },
-      ]),
+      supabase.from("withdrawal_requests")
+        .update({ status: "rejected", comment: "Отклонено администратором" }).eq("id", withdrawal.id),
+      supabase.from("balances").update({ balance: currentBalance + withdrawal.amount }).eq("id", withdrawal.user_id),
+      supabase.from("transactions").insert([{
+        user_id: withdrawal.user_id, type: "refund", amount: withdrawal.amount,
+        description: `Возврат за отклонённый вывод #${withdrawal.id}`,
+      }]),
     ]);
 
-    setWithdrawals((prev) =>
-      prev.map((w) =>
-        w.id === withdrawal.id ? { ...w, status: "rejected" } : w
-      )
-    );
-
+    setWithdrawals((prev) => prev.map((w) => w.id === withdrawal.id ? { ...w, status: "rejected" } : w));
     setActionLoading(null);
   }
 
   async function addBalance() {
     if (!selectedUser || !amount) return;
-
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) return;
-
     const user = users.find((u) => u.id === selectedUser);
     if (!user) return;
 
     await Promise.all([
-      supabase
-        .from("balances")
-        .update({ balance: user.balance + amountNum })
-        .eq("id", selectedUser),
-      supabase.from("transactions").insert([
-        {
-          user_id: selectedUser,
-          type: "deposit",
-          amount: amountNum,
-          description: "Пополнение администратором",
-        },
-      ]),
+      supabase.from("balances").update({ balance: user.balance + amountNum }).eq("id", selectedUser),
+      supabase.from("transactions").insert([{
+        user_id: selectedUser, type: "deposit", amount: amountNum, description: "Пополнение администратором",
+      }]),
     ]);
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u
-      )
-    );
-
+    setUsers((prev) => prev.map((u) => u.id === selectedUser ? { ...u, balance: u.balance + amountNum } : u));
     setAmount("");
   }
 
-  async function toggleBlock(userId: string, blocked: boolean) {
-    await supabase
-      .from("profiles")
-      .update({ is_blocked: !blocked })
-      .eq("id", userId);
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, is_blocked: !blocked } : u
-      )
-    );
+  function canManageUser(targetRole: string) {
+    if (myRole === "owner") return targetRole !== "owner";
+    if (myRole === "admin") return targetRole === "user";
+    return false;
   }
 
-  async function toggleRole(userId: string, role: string) {
-    const newRole = role === "admin" ? "user" : "admin";
-    if (!confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?"))
+  async function toggleBlock(userId: string, blocked: boolean, targetRole: string) {
+    if (!canManageUser(targetRole)) {
+      alert("У вас нет прав для этого действия");
       return;
+    }
+    await supabase.from("profiles").update({ is_blocked: !blocked }).eq("id", userId);
+    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, is_blocked: !blocked } : u));
+  }
+
+  async function toggleRole(userId: string, currentRole: string) {
+    if (myRole !== "owner") {
+      alert("Только владелец может менять роли");
+      return;
+    }
+    if (currentRole === "owner") {
+      alert("Нельзя изменить роль владельца");
+      return;
+    }
+
+    const newRole = currentRole === "admin" ? "user" : "admin";
+    if (!confirm(newRole === "admin" ? "Назначить админом?" : "Снять админа?")) return;
 
     await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
-    );
+    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
   }
 
   async function toggleModeration(id: number, current: boolean) {
-    await supabase
-      .from("products")
-      .update({ is_moderated: !current })
-      .eq("id", id);
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, is_moderated: !current } : p))
-    );
+    await supabase.from("products").update({ is_moderated: !current }).eq("id", id);
+    setProducts((prev) => prev.map((p) => p.id === id ? { ...p, is_moderated: !current } : p));
   }
 
   async function deleteProduct(id: number) {
@@ -486,9 +412,13 @@ export default function AdminPage() {
   ];
 
   const pendingDeposits = deposits.filter((d) => d.status === "pending").length;
-  const pendingWithdrawals = withdrawals.filter(
-    (w) => w.status === "pending"
-  ).length;
+  const pendingWithdrawals = withdrawals.filter((w) => w.status === "pending").length;
+
+  function getRoleBadge(role: string) {
+    if (role === "owner") return <span className="text-yellow-400 text-xs ml-2">👑 Владелец</span>;
+    if (role === "admin") return <span className="text-cyan-400 text-xs ml-2">[Админ]</span>;
+    return null;
+  }
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
@@ -501,7 +431,12 @@ export default function AdminPage() {
         )}
 
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-4xl font-bold">Админ-панель</h1>
+          <div>
+            <h1 className="text-4xl font-bold">Админ-панель</h1>
+            <p className="text-zinc-500 text-sm mt-1">
+              Роль: {myRole === "owner" ? "👑 Владелец" : "⚙️ Администратор"}
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="text-green-400 text-xs">Live</span>
@@ -514,9 +449,7 @@ export default function AdminPage() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-xl text-sm font-semibold relative ${
-                tab === t.id
-                  ? "bg-cyan-500 text-black"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                tab === t.id ? "bg-cyan-500 text-black" : "bg-zinc-800 hover:bg-zinc-700"
               } transition`}
             >
               {t.label}
@@ -549,64 +482,38 @@ export default function AdminPage() {
                     <div
                       key={dep.id}
                       className={`bg-zinc-900 border rounded-xl p-4 flex flex-col gap-4 ${
-                        dep.status === "pending"
-                          ? "border-yellow-500/30"
-                          : "border-zinc-800"
+                        dep.status === "pending" ? "border-yellow-500/30" : "border-zinc-800"
                       }`}
                     >
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                           <p className="font-bold">{dep.user_email}</p>
                           <p className="text-zinc-400 text-sm">
-                            {dep.amount.toFixed(2)} ₽ →{" "}
-                            {(dep.amount * 0.9).toFixed(2)} ₽
+                            {dep.amount.toFixed(2)} ₽ → {(dep.amount * 0.9).toFixed(2)} ₽
                           </p>
                           <p className="text-zinc-500 text-xs">
-                            #{dep.id} ·{" "}
-                            {new Date(dep.created_at).toLocaleString("ru")}
+                            #{dep.id} · {new Date(dep.created_at).toLocaleString("ru")}
                           </p>
                           {dep.comment && (
-                            <p className="text-cyan-400 text-xs mt-1">
-                              {dep.comment}
-                            </p>
+                            <p className="text-cyan-400 text-xs mt-1">{dep.comment}</p>
                           )}
                         </div>
-
                         {dep.status === "pending" ? (
                           <div className="flex flex-wrap gap-2">
-                            {/* Подтвердить */}
-                            <button
-                              onClick={() => approveDeposit(dep)}
-                              disabled={actionLoading === dep.id}
-                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 whitespace-nowrap"
-                            >
+                            <button onClick={() => approveDeposit(dep)} disabled={actionLoading === dep.id}
+                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 whitespace-nowrap">
                               {actionLoading === dep.id ? "..." : "✓ Подтвердить"}
                             </button>
-
-                            {/* Сумма не совпадает */}
-                            <button
-                              onClick={() => rejectDeposit(dep.id, "❌ Сумма не совпадает")}
-                              disabled={actionLoading === dep.id}
-                              className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
-                            >
+                            <button onClick={() => rejectDeposit(dep.id, "❌ Сумма не совпадает")} disabled={actionLoading === dep.id}
+                              className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap">
                               💰 Сумма не совпадает
                             </button>
-
-                            {/* Комментарий не указан */}
-                            <button
-                              onClick={() => rejectDeposit(dep.id, "❌ Комментарий не указан")}
-                              disabled={actionLoading === dep.id}
-                              className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
-                            >
+                            <button onClick={() => rejectDeposit(dep.id, "❌ Комментарий не указан")} disabled={actionLoading === dep.id}
+                              className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap">
                               💬 Нет комментария
                             </button>
-
-                            {/* Отклонить */}
-                            <button
-                              onClick={() => rejectDeposit(dep.id, "❌ Отклонено администратором")}
-                              disabled={actionLoading === dep.id}
-                              className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
-                            >
+                            <button onClick={() => rejectDeposit(dep.id, "❌ Отклонено администратором")} disabled={actionLoading === dep.id}
+                              className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap">
                               ✕ Отклонить
                             </button>
                           </div>
@@ -616,29 +523,12 @@ export default function AdminPage() {
                           </span>
                         )}
                       </div>
-
-                      {/* Подсказка для проверки */}
                       {dep.status === "pending" && (
                         <div className="bg-zinc-800/50 rounded-xl p-3 text-xs text-zinc-400 space-y-1">
                           <p>📋 <span className="text-white font-medium">Что проверить:</span></p>
-                          <p>
-                            1. Сумма перевода:{" "}
-                            <span className="text-cyan-400 font-bold">
-                              {dep.amount.toFixed(2)} ₽
-                            </span>
-                          </p>
-                          <p>
-                            2. Комментарий к переводу:{" "}
-                            <span className="text-cyan-400 font-bold">
-                              GameMarket ID{dep.id}
-                            </span>
-                          </p>
-                          <p>
-                            3. Отправитель:{" "}
-                            <span className="text-cyan-400 font-bold">
-                              {dep.user_email}
-                            </span>
-                          </p>
+                          <p>1. Сумма: <span className="text-cyan-400 font-bold">{dep.amount.toFixed(2)} ₽</span></p>
+                          <p>2. Комментарий: <span className="text-cyan-400 font-bold">GameMarket ID{dep.id}</span></p>
+                          <p>3. Отправитель: <span className="text-cyan-400 font-bold">{dep.user_email}</span></p>
                         </div>
                       )}
                     </div>
@@ -653,54 +543,31 @@ export default function AdminPage() {
                   <p className="text-zinc-400">Заявок на вывод нет</p>
                 ) : (
                   withdrawals.map((w) => (
-                    <div
-                      key={w.id}
+                    <div key={w.id}
                       className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                        w.status === "pending"
-                          ? "border-yellow-500/30"
-                          : "border-zinc-800"
-                      }`}
-                    >
+                        w.status === "pending" ? "border-yellow-500/30" : "border-zinc-800"
+                      }`}>
                       <div>
                         <p className="font-bold">{w.user_email}</p>
-                        <p className="text-lg font-bold text-cyan-400">
-                          {w.amount} ₽
-                        </p>
-                        <p className="text-zinc-400 text-sm">
-                          {w.method} · {w.requisites}
-                        </p>
-                        <p className="text-zinc-500 text-xs">
-                          #{w.id} ·{" "}
-                          {new Date(w.created_at).toLocaleString("ru")}
-                        </p>
-                        {w.comment && (
-                          <p className="text-cyan-400 text-xs mt-1">
-                            {w.comment}
-                          </p>
-                        )}
+                        <p className="text-lg font-bold text-cyan-400">{w.amount} ₽</p>
+                        <p className="text-zinc-400 text-sm">{w.method} · {w.requisites}</p>
+                        <p className="text-zinc-500 text-xs">#{w.id} · {new Date(w.created_at).toLocaleString("ru")}</p>
+                        {w.comment && <p className="text-cyan-400 text-xs mt-1">{w.comment}</p>}
                       </div>
                       <div className="flex gap-2">
                         {w.status === "pending" ? (
                           <>
-                            <button
-                              onClick={() => approveWithdrawal(w)}
-                              disabled={actionLoading === w.id}
-                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-                            >
+                            <button onClick={() => approveWithdrawal(w)} disabled={actionLoading === w.id}
+                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
                               {actionLoading === w.id ? "..." : "✓ Отправлено"}
                             </button>
-                            <button
-                              onClick={() => rejectWithdrawal(w)}
-                              disabled={actionLoading === w.id}
-                              className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-                            >
+                            <button onClick={() => rejectWithdrawal(w)} disabled={actionLoading === w.id}
+                              className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                               ✕ Отклонить
                             </button>
                           </>
                         ) : (
-                          <span className="text-sm">
-                            {w.status === "approved" ? "✅" : "❌"}
-                          </span>
+                          <span className="text-sm">{w.status === "approved" ? "✅" : "❌"}</span>
                         )}
                       </div>
                     </div>
@@ -712,52 +579,56 @@ export default function AdminPage() {
             {tab === "users" && (
               <div className="space-y-3">
                 {users.map((user) => (
-                  <div
-                    key={user.id}
+                  <div key={user.id}
                     className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-                      user.is_blocked ? "border-red-500/30" : "border-zinc-800"
-                    }`}
-                  >
+                      user.is_blocked ? "border-red-500/30"
+                      : user.role === "owner" ? "border-yellow-500/30"
+                      : "border-zinc-800"
+                    }`}>
                     <div>
                       <p className="font-bold">
                         {user.username || user.email}
-                        {user.role === "admin" && (
-                          <span className="text-cyan-400 text-xs ml-2">
-                            [Админ]
-                          </span>
-                        )}
-                        {user.is_blocked && (
-                          <span className="text-red-400 text-xs ml-2">
-                            [Бан]
-                          </span>
-                        )}
+                        {getRoleBadge(user.role || "user")}
+                        {user.is_blocked && <span className="text-red-400 text-xs ml-2">[Бан]</span>}
                       </p>
                       <p className="text-zinc-500 text-xs">{user.email}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold mr-2">
-                        {user.balance.toFixed(2)} ₽
-                      </p>
-                      <button
-                        onClick={() => toggleRole(user.id, user.role || "user")}
-                        className={`px-3 py-1 rounded-lg text-xs ${
-                          user.role === "admin"
-                            ? "bg-yellow-500/20 text-yellow-400"
-                            : "bg-cyan-500/20 text-cyan-400"
-                        }`}
-                      >
-                        {user.role === "admin" ? "Снять" : "Админ"}
-                      </button>
-                      <button
-                        onClick={() => toggleBlock(user.id, !!user.is_blocked)}
-                        className={`px-3 py-1 rounded-lg text-xs ${
-                          user.is_blocked
-                            ? "bg-green-500/20 text-green-400"
-                            : "bg-red-500/20 text-red-400"
-                        }`}
-                      >
-                        {user.is_blocked ? "Разбан" : "Бан"}
-                      </button>
+                      <p className="font-bold mr-2">{user.balance.toFixed(2)} ₽</p>
+
+                      {/* Кнопка роли — только для owner */}
+                      {myRole === "owner" && user.role !== "owner" && (
+                        <button
+                          onClick={() => toggleRole(user.id, user.role || "user")}
+                          className={`px-3 py-1 rounded-lg text-xs ${
+                            user.role === "admin"
+                              ? "bg-yellow-500/20 text-yellow-400"
+                              : "bg-cyan-500/20 text-cyan-400"
+                          }`}
+                        >
+                          {user.role === "admin" ? "Снять админа" : "Сделать админом"}
+                        </button>
+                      )}
+
+                      {user.role === "owner" && (
+                        <span className="px-3 py-1 rounded-lg text-xs bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                          👑 Защищён
+                        </span>
+                      )}
+
+                      {/* Кнопка бана */}
+                      {canManageUser(user.role || "user") && (
+                        <button
+                          onClick={() => toggleBlock(user.id, !!user.is_blocked, user.role || "user")}
+                          className={`px-3 py-1 rounded-lg text-xs ${
+                            user.is_blocked
+                              ? "bg-green-500/20 text-green-400"
+                              : "bg-red-500/20 text-red-400"
+                          }`}
+                        >
+                          {user.is_blocked ? "Разбан" : "Бан"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -767,31 +638,21 @@ export default function AdminPage() {
             {tab === "products" && (
               <div className="space-y-3">
                 {products.map((p) => (
-                  <div
-                    key={p.id}
-                    className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between"
-                  >
+                  <div key={p.id}
+                    className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                     <div>
                       <p className="font-bold">{p.title}</p>
-                      <p className="text-zinc-500 text-xs">
-                        {p.seller} · {p.price}
-                      </p>
+                      <p className="text-zinc-500 text-xs">{p.seller} · {p.price}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => toggleModeration(p.id, p.is_moderated)}
+                      <button onClick={() => toggleModeration(p.id, p.is_moderated)}
                         className={`px-3 py-1 rounded-lg text-xs ${
-                          p.is_moderated
-                            ? "bg-red-500/20 text-red-400"
-                            : "bg-green-500/20 text-green-400"
-                        }`}
-                      >
+                          p.is_moderated ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"
+                        }`}>
                         {p.is_moderated ? "Скрыть" : "Показать"}
                       </button>
-                      <button
-                        onClick={() => deleteProduct(p.id)}
-                        className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400"
-                      >
+                      <button onClick={() => deleteProduct(p.id)}
+                        className="px-3 py-1 rounded-lg text-xs bg-red-500/20 text-red-400">
                         Удалить
                       </button>
                     </div>
@@ -806,15 +667,11 @@ export default function AdminPage() {
                   <p className="text-zinc-400">Сделок нет</p>
                 ) : (
                   deals.map((d) => (
-                    <div
-                      key={d.id}
-                      className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between"
-                    >
+                    <div key={d.id}
+                      className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
                       <div>
                         <p className="font-bold">{d.product_title}</p>
-                        <p className="text-zinc-500 text-xs">
-                          {d.buyer_email} → {d.seller_email}
-                        </p>
+                        <p className="text-zinc-500 text-xs">{d.buyer_email} → {d.seller_email}</p>
                       </div>
                       <div className="text-right">
                         <p className="font-bold">{d.price}</p>
@@ -830,29 +687,17 @@ export default function AdminPage() {
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
                 <h2 className="text-xl font-bold mb-4">Пополнить вручную</h2>
                 <div className="flex flex-col md:flex-row gap-3">
-                  <select
-                    value={selectedUser}
-                    onChange={(e) => setSelectedUser(e.target.value)}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4"
-                  >
+                  <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl p-4">
                     <option value="">Выберите</option>
                     {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.email} ({u.balance.toFixed(2)} ₽)
-                      </option>
+                      <option key={u.id} value={u.id}>{u.email} ({u.balance.toFixed(2)} ₽)</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="Сумма"
-                    className="w-40 bg-zinc-800 border border-zinc-700 rounded-xl p-4"
-                  />
-                  <button
-                    onClick={addBalance}
-                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold"
-                  >
+                  <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Сумма" className="w-40 bg-zinc-800 border border-zinc-700 rounded-xl p-4" />
+                  <button onClick={addBalance}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-6 py-4 rounded-xl font-bold">
                     +
                   </button>
                 </div>

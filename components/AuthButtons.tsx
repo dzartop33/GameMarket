@@ -9,6 +9,7 @@ type AuthCache = {
   username: string;
   balance: number;
   isAdmin: boolean;
+  role: string;
 };
 
 export default function AuthButtons() {
@@ -17,6 +18,7 @@ export default function AuthButtons() {
   const [username, setUsername] = useState<string | null>(cached?.username ?? null);
   const [balance, setBalance] = useState<number | null>(cached?.balance ?? null);
   const [isAdmin, setIsAdmin] = useState<boolean>(cached?.isAdmin ?? false);
+  const [role, setRole] = useState<string>(cached?.role ?? "user");
   const [loaded, setLoaded] = useState<boolean>(!!cached);
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export default function AuthButtons() {
         setUsername(null);
         setBalance(null);
         setIsAdmin(false);
+        setRole("user");
         setLoaded(true);
         return;
       }
@@ -53,6 +56,7 @@ export default function AuthButtons() {
           setUsername(null);
           setBalance(null);
           setIsAdmin(false);
+          setRole("user");
         }
         setLoaded(true);
         return;
@@ -60,7 +64,6 @@ export default function AuthButtons() {
 
       const user = session.user;
 
-      // Сразу показываем что-то
       if (!username) {
         setUsername(user.email?.split("@")[0] || "user");
         setLoaded(true);
@@ -81,7 +84,8 @@ export default function AuthButtons() {
 
       const finalUsername =
         profileResult.data?.username || user.email?.split("@")[0] || "user";
-      const finalIsAdmin = profileResult.data?.role === "admin";
+      const finalRole = profileResult.data?.role || "user";
+      const finalIsAdmin = finalRole === "admin" || finalRole === "owner";
       const finalBalance =
         balanceResult.data?.balance !== undefined &&
         balanceResult.data?.balance !== null
@@ -91,21 +95,23 @@ export default function AuthButtons() {
       setUsername(finalUsername);
       setBalance(finalBalance);
       setIsAdmin(finalIsAdmin);
+      setRole(finalRole);
       setLoaded(true);
 
       setCache("auth-user", {
         username: finalUsername,
         balance: finalBalance,
         isAdmin: finalIsAdmin,
+        role: finalRole,
       });
     } catch (error) {
       console.error("Ошибка загрузки пользователя:", error);
 
-      // Если есть кэш — используем его
       if (cached) {
         setUsername(cached.username);
         setBalance(cached.balance);
         setIsAdmin(cached.isAdmin);
+        setRole(cached.role);
       }
 
       setLoaded(true);
@@ -119,11 +125,18 @@ export default function AuthButtons() {
     setUsername(null);
     setBalance(null);
     setIsAdmin(false);
+    setRole("user");
     window.location.assign("/");
   }
 
   if (!loaded) {
     return <div className="w-32 h-10 rounded-xl bg-zinc-800 animate-pulse" />;
+  }
+
+  function getAvatarStyle() {
+    if (role === "owner") return "bg-gradient-to-br from-yellow-400 to-red-500";
+    if (role === "admin") return "bg-gradient-to-br from-red-400 to-orange-500";
+    return "bg-gradient-to-br from-cyan-400 to-blue-500";
   }
 
   if (username) {
@@ -141,17 +154,16 @@ export default function AuthButtons() {
           className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition"
         >
           <div
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-black ${
-              isAdmin
-                ? "bg-gradient-to-br from-red-400 to-orange-500"
-                : "bg-gradient-to-br from-cyan-400 to-blue-500"
-            }`}
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-black ${getAvatarStyle()}`}
           >
             {username.charAt(0).toUpperCase()}
           </div>
           <span className="text-sm max-w-[100px] truncate hidden sm:block">
             {username}
           </span>
+          {role === "owner" && (
+            <span className="text-[10px] text-yellow-400">👑</span>
+          )}
         </Link>
 
         <button
