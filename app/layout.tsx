@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminFloatingButton from "@/components/AdminFloatingButton";
+
+import { UserProvider } from "@/context/UserProvider";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,10 +36,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-zinc-950 text-white flex flex-col">
-        <Navbar />
-        {children}
-        <Footer />
-        <AdminFloatingButton />
+        <UserProvider>
+          <Navbar />
+          {children}
+          <Footer />
+          <AdminFloatingButton />
+        </UserProvider>
       </body>
     </html>
   );
