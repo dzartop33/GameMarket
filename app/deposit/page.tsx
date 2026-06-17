@@ -64,7 +64,6 @@ export default function DepositPage() {
       sessionRef.current = session;
       userIdRef.current = session.user.id;
 
-      // Все запросы параллельно
       const [balanceResult, requestsResult] = await Promise.all([
         supabase
           .from("balances")
@@ -183,7 +182,6 @@ export default function DepositPage() {
 
     setLoading(true);
 
-    // Используем кэшированную сессию
     const session = sessionRef.current;
     if (!session?.user) {
       const {
@@ -200,7 +198,6 @@ export default function DepositPage() {
 
     const user = sessionRef.current.user;
 
-    // Один запрос — сразу создаём
     const { data, error } = await supabase
       .from("deposit_requests")
       .insert([
@@ -226,7 +223,6 @@ export default function DepositPage() {
       return;
     }
 
-    // Обновляем стейт без повторной загрузки
     setCurrentRequest(data);
     setHasPending(true);
     setRequests((prev) => [data, ...prev]);
@@ -242,8 +238,7 @@ export default function DepositPage() {
       })
       .eq("id", currentRequest.id);
 
-    alert("Заявка отправлена на проверку. Баланс будет пополнен после подтверждения.");
-    setAmount("");
+    window.location.assign("/");
   }
 
   async function handleCancelRequest() {
@@ -256,14 +251,7 @@ export default function DepositPage() {
       .update({ status: "rejected", comment: "Отменено пользователем" })
       .eq("id", currentRequest.id);
 
-    setRequests((prev) =>
-      prev.map((r) =>
-        r.id === currentRequest.id ? { ...r, status: "rejected" } : r
-      )
-    );
-    setCurrentRequest(null);
-    setHasPending(false);
-    setAmount("");
+    window.location.assign("/");
   }
 
   function getSbpLink() {
