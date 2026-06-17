@@ -71,8 +71,64 @@ export default function DealsPage() {
     }
   }
 
-  async function updateStatus(dealId: number, newStatus: string) {
+  async function updateStatus(
+    dealId: number,
+    newStatus: string,
+    deal?: Deal
+  ) {
     try {
+      // Открытие спора
+      if (newStatus === "dispute" && deal) {
+        const reason = prompt(
+          "Опишите причину спора:\n\nНапример:\n• Товар не получен\n• Товар не соответствует описанию\n• Продавец не отвечает"
+        );
+
+        if (!reason || !reason.trim()) {
+          return;
+        }
+
+        const { error: disputeError } = await supabase
+          .from("disputes")
+          .insert([
+            {
+              deal_id: deal.id,
+              buyer_id: deal.buyer_id,
+              seller_id: deal.seller_id,
+              reason: reason.trim(),
+              status: "open",
+            },
+          ]);
+
+        if (disputeError) {
+          alert(disputeError.message);
+          return;
+        }
+
+        const { error } = await supabase
+          .from("deals")
+          .update({ status: "dispute" })
+          .eq("id", dealId);
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+
+        setDeals((prev) =>
+          prev.map((d) =>
+            d.id === dealId
+              ? { ...d, status: "dispute" }
+              : d
+          )
+        );
+
+        alert(
+          "✅ Спор открыт.\n\nАдминистратор рассмотрит вашу заявку."
+        );
+
+        return;
+      }
+
       const { error } = await supabase
         .from("deals")
         .update({ status: newStatus })
@@ -84,7 +140,11 @@ export default function DealsPage() {
       }
 
       setDeals((prev) =>
-        prev.map((d) => (d.id === dealId ? { ...d, status: newStatus } : d))
+        prev.map((d) =>
+          d.id === dealId
+            ? { ...d, status: newStatus }
+            : d
+        )
       );
     } catch (error) {
       console.error("Ошибка обновления статуса:", error);
@@ -103,7 +163,10 @@ export default function DealsPage() {
     return (
       <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-4">Войдите в аккаунт</h1>
+          <h1 className="text-3xl font-bold mb-4">
+            Войдите в аккаунт
+          </h1>
+
           <Link
             href="/login"
             className="bg-gradient-to-r from-cyan-500 to-blue-500 text-black px-8 py-3 rounded-xl font-bold"
@@ -118,12 +181,20 @@ export default function DealsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-4xl mx-auto px-6 py-12">
-        <h1 className="text-4xl font-bold mb-2">Мои сделки</h1>
-        <p className="text-zinc-400 mb-8">Управляйте покупками и продажами</p>
+        <h1 className="text-4xl font-bold mb-2">
+          Мои сделки
+        </h1>
+
+        <p className="text-zinc-400 mb-8">
+          Управляйте покупками и продажами
+        </p>
 
         {deals.length === 0 ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center">
-            <p className="text-zinc-400">У вас пока нет сделок</p>
+            <p className="text-zinc-400">
+              У вас пока нет сделок
+            </p>
+
             <Link
               href="/catalog"
               className="inline-block mt-4 text-cyan-400 hover:underline"
@@ -134,15 +205,23 @@ export default function DealsPage() {
         ) : (
           <div className="space-y-4">
             {deals.map((deal) => {
-              const isBuyer = deal.buyer_id === userId;
-              const role = isBuyer ? "Покупатель" : "Продавец";
-              const otherUser = isBuyer ? deal.seller_email : deal.buyer_email;
+              const isBuyer =
+                deal.buyer_id === userId;
+
+              const role = isBuyer
+                ? "Покупатель"
+                : "Продавец";
+
+              const otherUser = isBuyer
+                ? deal.seller_email
+                : deal.buyer_email;
 
               return (
                 <div
                   key={deal.id}
                   className={`border rounded-2xl p-6 ${
-                    statusColors[deal.status] || "border-zinc-800"
+                    statusColors[deal.status] ||
+                    "border-zinc-800"
                   }`}
                 >
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -154,68 +233,118 @@ export default function DealsPage() {
                         >
                           {deal.product_title}
                         </Link>
+
                         <span className="text-xs bg-zinc-800 px-2 py-1 rounded-full">
                           {role}
                         </span>
                       </div>
+
                       <p className="text-zinc-400 text-sm mt-1">
-                        {isBuyer ? "Продавец" : "Покупатель"}: {otherUser}
+                        {isBuyer
+                          ? "Продавец"
+                          : "Покупатель"}
+                        : {otherUser}
                       </p>
+
                       <p className="text-sm mt-1">
-                        {statusLabels[deal.status] || deal.status}
+                        {statusLabels[deal.status] ||
+                          deal.status}
                       </p>
+
+                      {deal.status === "dispute" && (
+                        <p className="text-orange-400 text-sm mt-2">
+                          Спор открыт. Ожидайте решения администратора.
+                        </p>
+                      )}
+
                       <p className="text-zinc-500 text-xs mt-1">
-                        {new Date(deal.created_at).toLocaleString("ru")}
+                        {new Date(
+                          deal.created_at
+                        ).toLocaleString("ru")}
                       </p>
                     </div>
+
                     <div className="text-right">
-                      <p className="text-2xl font-bold">{deal.price}</p>
+                      <p className="text-2xl font-bold">
+                        {deal.price}
+                      </p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2 mt-4">
-                    {isBuyer && deal.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => updateStatus(deal.id, "paid")}
-                          className="bg-green-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
-                        >
-                          Подтвердить оплату
-                        </button>
-                        <button
-                          onClick={() => updateStatus(deal.id, "cancelled")}
-                          className="bg-zinc-800 text-red-400 px-4 py-2 rounded-xl text-sm"
-                        >
-                          Отменить
-                        </button>
-                      </>
-                    )}
+                    {isBuyer &&
+                      deal.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() =>
+                              updateStatus(
+                                deal.id,
+                                "paid"
+                              )
+                            }
+                            className="bg-green-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
+                          >
+                            Подтвердить оплату
+                          </button>
 
-                    {!isBuyer && deal.status === "paid" && (
-                      <button
-                        onClick={() => updateStatus(deal.id, "in_progress")}
-                        className="bg-blue-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
-                      >
-                        Начать передачу товара
-                      </button>
-                    )}
+                          <button
+                            onClick={() =>
+                              updateStatus(
+                                deal.id,
+                                "cancelled"
+                              )
+                            }
+                            className="bg-zinc-800 text-red-400 px-4 py-2 rounded-xl text-sm"
+                          >
+                            Отменить
+                          </button>
+                        </>
+                      )}
 
-                    {isBuyer && deal.status === "in_progress" && (
-                      <>
+                    {!isBuyer &&
+                      deal.status === "paid" && (
                         <button
-                          onClick={() => updateStatus(deal.id, "completed")}
-                          className="bg-green-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
+                          onClick={() =>
+                            updateStatus(
+                              deal.id,
+                              "in_progress"
+                            )
+                          }
+                          className="bg-blue-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
                         >
-                          Товар получен
+                          Начать передачу товара
                         </button>
-                        <button
-                          onClick={() => updateStatus(deal.id, "dispute")}
-                          className="bg-orange-500 text-black px-4 py-2 rounded-xl text-sm"
-                        >
-                          Открыть спор
-                        </button>
-                      </>
-                    )}
+                      )}
+
+                    {isBuyer &&
+                      deal.status === "in_progress" && (
+                        <>
+                          <button
+                            onClick={() =>
+                              updateStatus(
+                                deal.id,
+                                "completed"
+                              )
+                            }
+                            className="bg-green-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
+                          >
+                            Товар получен
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              updateStatus(
+                                deal.id,
+                                "dispute",
+                                deal
+                              )
+                            }
+                            className="bg-orange-500 text-black px-4 py-2 rounded-xl text-sm font-semibold"
+                          >
+                            ⚠️ Открыть спор
+                          </button>
+                        </>
+                      )}
 
                     <Link
                       href="/messages"
