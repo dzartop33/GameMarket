@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { getCache, setCache } from "@/lib/cache";
 
 type Role = "user" | "admin" | "owner" | null;
 
 export default function AdminFloatingButton() {
-  const [role, setRole] = useState<Role>(null);
+  const cachedRole = getCache("user-role") as Role | null;
+  const [role, setRole] = useState<Role>(cachedRole);
   const [isOpen, setIsOpen] = useState(false);
   const [stats, setStats] = useState({
     pendingDeposits: 0,
@@ -20,17 +22,9 @@ export default function AdminFloatingButton() {
   const [statsLoaded, setStatsLoaded] = useState(false);
 
   useEffect(() => {
-    loadRole();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
+    if (!cachedRole) {
       loadRole();
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    }
   }, []);
 
   async function loadRole() {
@@ -44,27 +38,20 @@ export default function AdminFloatingButton() {
         return;
       }
 
-      // Без maybeSingle(), чтобы не ломалось при 0/нескольких строках
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", session.user.id);
-
-      if (error) {
-        console.error("Ошибка загрузки роли:", error);
-        setRole(null);
-        return;
-      }
 
       const foundRole = data?.[0]?.role || "user";
 
       if (foundRole === "admin" || foundRole === "owner") {
         setRole(foundRole);
+        setCache("user-role", foundRole);
       } else {
         setRole(null);
       }
-    } catch (error) {
-      console.error("Ошибка проверки роли:", error);
+    } catch {
       setRole(null);
     }
   }
@@ -96,17 +83,19 @@ export default function AdminFloatingButton() {
       let totalRevenue = 0;
 
       if (role === "owner") {
-        const { data: revenueData } = await supabase
-          .from("transactions")
-          .select("amount")
-          .eq("type", "deposit");
+        try {
+          const { data: revenueData } = await supabase
+            .from("transactions")
+            .select("amount")
+            .eq("type", "deposit");
 
-        if (revenueData) {
-          totalRevenue = revenueData.reduce(
-            (sum, item) => sum + Number(item.amount || 0),
-            0
-          );
-        }
+          if (revenueData) {
+            totalRevenue = revenueData.reduce(
+              (sum, item) => sum + Number(item.amount || 0),
+              0
+            );
+          }
+        } catch {}
       }
 
       setStats({
@@ -119,16 +108,13 @@ export default function AdminFloatingButton() {
       });
 
       setStatsLoaded(true);
-    } catch (error) {
-      console.error("Ошибка загрузки статистики:", error);
-    }
+    } catch {}
   }
 
   function handleToggle() {
     const next = !isOpen;
     setIsOpen(next);
-
-    if (next) {
+    if (next && !statsLoaded) {
       loadStats();
     }
   }
@@ -148,12 +134,13 @@ export default function AdminFloatingButton() {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-[9999] w-72 bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-24 right-6 z-[9999] w-72 max-h-[70vh] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-zinc-700">
+          {/* Заголовок */}
           <div
-            className={`p-4 ${
+            className={`p-4 sticky top-0 z-10 ${
               isOwner
-                ? "bg-gradient-to-r from-yellow-500/20 to-red-500/20 border-b border-yellow-500/20"
-                : "bg-gradient-to-r from-red-500/20 to-orange-500/20 border-b border-red-500/20"
+                ? "bg-zinc-900 border-b border-yellow-500/20"
+                : "bg-zinc-900 border-b border-red-500/20"
             }`}
           >
             <p className="font-bold text-sm">
@@ -161,35 +148,40 @@ export default function AdminFloatingButton() {
             </p>
           </div>
 
+          {/* Статистика */}
           <div className="p-3 border-b border-zinc-800">
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">{stats.totalUsers}</p>
+                <p className="text-lg font-bold">
+                  {statsLoaded ? stats.totalUsers : "—"}
+                </p>
                 <p className="text-zinc-500 text-[10px]">Пользователи</p>
               </div>
-
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">{stats.totalProducts}</p>
+                <p className="text-lg font-bold">
+                  {statsLoaded ? stats.totalProducts : "—"}
+                </p>
                 <p className="text-zinc-500 text-[10px]">Объявления</p>
               </div>
-
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">{stats.totalDeals}</p>
+                <p className="text-lg font-bold">
+                  {statsLoaded ? stats.totalDeals : "—"}
+                </p>
                 <p className="text-zinc-500 text-[10px]">Сделки</p>
               </div>
-
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
                 <p className="text-lg font-bold text-yellow-400">
-                  {totalPending}
+                  {statsLoaded ? totalPending : "—"}
                 </p>
                 <p className="text-zinc-500 text-[10px]">Ожидают</p>
               </div>
             </div>
           </div>
 
+          {/* Общие функции */}
           <div className="p-2">
             <p className="text-zinc-500 text-[10px] uppercase tracking-wider px-2 py-1">
-              Общие функции
+              Управление
             </p>
 
             <Link
@@ -198,7 +190,7 @@ export default function AdminFloatingButton() {
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-800 transition text-sm"
             >
               <span>⚙️</span>
-              <span>Открыть админ-панель</span>
+              <span>Админ-панель</span>
               {totalPending > 0 && (
                 <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                   {totalPending}
@@ -213,6 +205,11 @@ export default function AdminFloatingButton() {
             >
               <span>💰</span>
               <span>Пополнения</span>
+              {stats.pendingDeposits > 0 && (
+                <span className="ml-auto bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {stats.pendingDeposits}
+                </span>
+              )}
             </Link>
 
             <Link
@@ -222,6 +219,11 @@ export default function AdminFloatingButton() {
             >
               <span>💸</span>
               <span>Выводы</span>
+              {stats.pendingWithdrawals > 0 && (
+                <span className="ml-auto bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {stats.pendingWithdrawals}
+                </span>
+              )}
             </Link>
 
             <Link
@@ -252,6 +254,7 @@ export default function AdminFloatingButton() {
             </Link>
           </div>
 
+          {/* Только для owner */}
           {isOwner && (
             <div className="p-2 border-t border-yellow-500/20">
               <p className="text-yellow-500 text-[10px] uppercase tracking-wider px-2 py-1">
@@ -280,7 +283,7 @@ export default function AdminFloatingButton() {
                 <span>💵</span>
                 <span>Доход площадки</span>
                 <span className="ml-auto text-green-400 font-bold text-sm">
-                  {stats.totalRevenue.toFixed(0)} ₽
+                  {statsLoaded ? `${stats.totalRevenue.toFixed(0)} ₽` : "—"}
                 </span>
               </div>
             </div>
@@ -288,6 +291,7 @@ export default function AdminFloatingButton() {
         </div>
       )}
 
+      {/* Кнопка */}
       <button
         onClick={handleToggle}
         className={`fixed bottom-6 right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform ${

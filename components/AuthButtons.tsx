@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { getCache, setCache, clearCache } from "@/lib/cache";
@@ -21,6 +21,9 @@ export default function AuthButtons() {
   const [role, setRole] = useState<string>(cached?.role ?? "user");
   const [loaded, setLoaded] = useState<boolean>(!!cached);
 
+  const isLoadingRef = useRef(false);
+  const lastLoadRef = useRef(0);
+
   useEffect(() => {
     loadUser();
 
@@ -30,6 +33,7 @@ export default function AuthButtons() {
       if (event === "SIGNED_OUT") {
         clearCache("auth-user");
         clearCache("profile");
+        clearCache("user-role");
         setUsername(null);
         setBalance(null);
         setIsAdmin(false);
@@ -37,6 +41,11 @@ export default function AuthButtons() {
         setLoaded(true);
         return;
       }
+
+      // Не загружаем чаще чем раз в 5 секунд
+      const now = Date.now();
+      if (now - lastLoadRef.current < 5000) return;
+
       loadUser();
     });
 
@@ -46,6 +55,11 @@ export default function AuthButtons() {
   }, []);
 
   async function loadUser() {
+    // Защита от параллельных вызовов
+    if (isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    lastLoadRef.current = Date.now();
+
     try {
       const {
         data: { session },
@@ -59,12 +73,19 @@ export default function AuthButtons() {
           setRole("user");
         }
         setLoaded(true);
+        isLoadingRef.current = false;
         return;
       }
 
       const user = session.user;
 
-      if (!username) {
+      // Показываем кэш сразу
+      if (!loaded && cached) {
+        setLoaded(true);
+      }
+
+      // Если нет кэша — показываем хоть что-то
+      if (!loaded && !cached) {
         setUsername(user.email?.split("@")[0] || "user");
         setLoaded(true);
       }
@@ -73,23 +94,23 @@ export default function AuthButtons() {
         supabase
           .from("profiles")
           .select("username, role")
-          .eq("id", user.id)
-          .maybeSingle(),
+          .eq("id", user.id),
         supabase
           .from("balances")
           .select("balance")
-          .eq("id", user.id)
-          .maybeSingle(),
+          .eq("id", user.id),
       ]);
 
+      const profile = profileResult.data?.[0];
+      const balanceRow = balanceResult.data?.[0];
+
       const finalUsername =
-        profileResult.data?.username || user.email?.split("@")[0] || "user";
-      const finalRole = profileResult.data?.role || "user";
+        profile?.username || user.email?.split("@")[0] || "user";
+      const finalRole = profile?.role || "user";
       const finalIsAdmin = finalRole === "admin" || finalRole === "owner";
       const finalBalance =
-        balanceResult.data?.balance !== undefined &&
-        balanceResult.data?.balance !== null
-          ? Number(balanceResult.data.balance)
+        balanceRow?.balance !== undefined && balanceRow?.balance !== null
+          ? Number(balanceRow.balance)
           : 0;
 
       setUsername(finalUsername);
@@ -116,11 +137,14 @@ export default function AuthButtons() {
 
       setLoaded(true);
     }
+
+    isLoadingRef.current = false;
   }
 
   async function handleLogout() {
     clearCache("auth-user");
     clearCache("profile");
+    clearCache("user-role");
     await supabase.auth.signOut();
     setUsername(null);
     setBalance(null);
