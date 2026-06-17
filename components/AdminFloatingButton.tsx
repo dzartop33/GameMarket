@@ -8,17 +8,21 @@ import { getCache, setCache, clearCache } from "@/lib/cache";
 type Role = "user" | "admin" | "owner" | null;
 
 export default function AdminFloatingButton() {
-  const [role, setRole] = useState<Role>(null);
+  const [role, setRole] = useState<Role>(
+    (getCache("user-role") as Role) || null
+  );
   const [isOpen, setIsOpen] = useState(false);
-  const [stats, setStats] = useState({
-    pendingDeposits: 0,
-    pendingWithdrawals: 0,
-    totalUsers: 0,
-    totalProducts: 0,
-    totalDeals: 0,
-    totalRevenue: 0,
-  });
-  const [statsLoaded, setStatsLoaded] = useState(false);
+  const [stats, setStats] = useState(
+    (getCache("admin-stats") as any) || {
+      pendingDeposits: 0,
+      pendingWithdrawals: 0,
+      totalUsers: 0,
+      totalProducts: 0,
+      totalDeals: 0,
+      totalRevenue: 0,
+    }
+  );
+  const [statsLoaded, setStatsLoaded] = useState(!!getCache("admin-stats"));
 
   useEffect(() => {
     loadRole();
@@ -28,6 +32,7 @@ export default function AdminFloatingButton() {
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         clearCache("user-role");
+        clearCache("admin-stats");
         setRole(null);
         setIsOpen(false);
         return;
@@ -44,7 +49,6 @@ export default function AdminFloatingButton() {
 
   async function loadRole() {
     try {
-      // Сначала проверяем кэш
       const cached = getCache("user-role") as Role | null;
       if (cached) {
         setRole(cached);
@@ -79,7 +83,7 @@ export default function AdminFloatingButton() {
   }
 
   async function loadStats() {
-    if (statsLoaded || !role) return;
+    if (statsLoaded) return;
 
     try {
       const [deposits, withdrawals, users, products, deals] =
@@ -121,23 +125,25 @@ export default function AdminFloatingButton() {
         } catch {}
       }
 
-      setStats({
+      const newStats = {
         pendingDeposits: deposits.count || 0,
         pendingWithdrawals: withdrawals.count || 0,
         totalUsers: users.count || 0,
         totalProducts: products.count || 0,
         totalDeals: deals.count || 0,
         totalRevenue,
-      });
+      };
 
+      setStats(newStats);
       setStatsLoaded(true);
+      setCache("admin-stats", newStats);
     } catch {}
   }
 
   function handleToggle() {
     const next = !isOpen;
     setIsOpen(next);
-    if (next && !statsLoaded) {
+    if (next) {
       loadStats();
     }
   }
@@ -173,26 +179,20 @@ export default function AdminFloatingButton() {
           <div className="p-3 border-b border-zinc-800">
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">
-                  {statsLoaded ? stats.totalUsers : "—"}
-                </p>
+                <p className="text-lg font-bold">{stats.totalUsers}</p>
                 <p className="text-zinc-500 text-[10px]">Пользователи</p>
               </div>
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">
-                  {statsLoaded ? stats.totalProducts : "—"}
-                </p>
+                <p className="text-lg font-bold">{stats.totalProducts}</p>
                 <p className="text-zinc-500 text-[10px]">Объявления</p>
               </div>
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
-                <p className="text-lg font-bold">
-                  {statsLoaded ? stats.totalDeals : "—"}
-                </p>
+                <p className="text-lg font-bold">{stats.totalDeals}</p>
                 <p className="text-zinc-500 text-[10px]">Сделки</p>
               </div>
               <div className="bg-zinc-800/50 rounded-lg p-2 text-center">
                 <p className="text-lg font-bold text-yellow-400">
-                  {statsLoaded ? totalPending : "—"}
+                  {totalPending}
                 </p>
                 <p className="text-zinc-500 text-[10px]">Ожидают</p>
               </div>
@@ -302,7 +302,7 @@ export default function AdminFloatingButton() {
                 <span>💵</span>
                 <span>Доход площадки</span>
                 <span className="ml-auto text-green-400 font-bold">
-                  {statsLoaded ? `${stats.totalRevenue.toFixed(0)} ₽` : "—"}
+                  {stats.totalRevenue.toFixed(0)} ₽
                 </span>
               </div>
             </div>
