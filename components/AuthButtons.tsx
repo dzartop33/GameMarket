@@ -77,15 +77,12 @@ export default function AuthButtons() {
 
       const user = session.user;
 
-      if (!loaded && cached) {
+      // Если есть кэш — показываем его сразу, не трогаем
+      if (cached) {
         setLoaded(true);
       }
 
-      if (!loaded && !cached) {
-        setUsername(user.email?.split("@")[0] || "user");
-        setLoaded(true);
-      }
-
+      // Загружаем данные из БД
       const [profileResult, balanceResult] = await Promise.all([
         supabase
           .from("profiles")
@@ -100,27 +97,73 @@ export default function AuthButtons() {
       const profile = profileResult.data?.[0];
       const balanceRow = balanceResult.data?.[0];
 
-      const finalUsername =
-        profile?.username || user.email?.split("@")[0] || "user";
-      const finalRole = profile?.role || "user";
-      const finalIsAdmin = finalRole === "admin" || finalRole === "owner";
-      const finalBalance =
-        balanceRow?.balance !== undefined && balanceRow?.balance !== null
-          ? Number(balanceRow.balance)
-          : 0;
+      // Если профиль загрузился — используем его
+      if (profile?.username) {
+        const finalUsername = profile.username;
+        const finalRole = profile.role || "user";
+        const finalIsAdmin = finalRole === "admin" || finalRole === "owner";
+        const finalBalance =
+          balanceRow?.balance !== undefined && balanceRow?.balance !== null
+            ? Number(balanceRow.balance)
+            : 0;
 
-      setUsername(finalUsername);
-      setBalance(finalBalance);
-      setIsAdmin(finalIsAdmin);
-      setRole(finalRole);
-      setLoaded(true);
+        setUsername(finalUsername);
+        setBalance(finalBalance);
+        setIsAdmin(finalIsAdmin);
+        setRole(finalRole);
+        setLoaded(true);
 
-      setCache("auth-user", {
-        username: finalUsername,
-        balance: finalBalance,
-        isAdmin: finalIsAdmin,
-        role: finalRole,
-      });
+        setCache("auth-user", {
+          username: finalUsername,
+          balance: finalBalance,
+          isAdmin: finalIsAdmin,
+          role: finalRole,
+        });
+      } else if (!cached) {
+        // Профиля нет в БД и кэша нет — показываем скелетон пока не создастся
+        // Не показываем email!
+        setLoaded(false);
+
+        // Пробуем создать профиль
+        try {
+          await supabase.from("profiles").insert([
+            {
+              id: user.id,
+              username: user.email?.split("@")[0] || "user",
+              email: user.email,
+              role: "user",
+              is_blocked: false,
+            },
+          ]);
+
+          await supabase.from("balances").insert([
+            {
+              id: user.id,
+              email: user.email,
+              balance: 0,
+            },
+          ]);
+
+          const newUsername = user.email?.split("@")[0] || "user";
+
+          setUsername(newUsername);
+          setBalance(0);
+          setIsAdmin(false);
+          setRole("user");
+          setLoaded(true);
+
+          setCache("auth-user", {
+            username: newUsername,
+            balance: 0,
+            isAdmin: false,
+            role: "user",
+          });
+        } catch {
+          // Если insert не удался (дубль) — просто показываем email как фоллбэк
+          setUsername(user.email?.split("@")[0] || "user");
+          setLoaded(true);
+        }
+      }
     } catch (error) {
       console.error("Ошибка загрузки пользователя:", error);
 
@@ -152,9 +195,7 @@ export default function AuthButtons() {
         setTimeout(() => reject("timeout"), 3000)
       );
       await Promise.race([supabase.auth.signOut(), timeout]);
-    } catch {
-      // Даже если signOut не сработал — всё равно редиректим
-    }
+    } catch {}
 
     try {
       const keys = Object.keys(localStorage);
