@@ -42,7 +42,6 @@ export default function AuthButtons() {
         return;
       }
 
-      // Не загружаем чаще чем раз в 5 секунд
       const now = Date.now();
       if (now - lastLoadRef.current < 5000) return;
 
@@ -55,7 +54,6 @@ export default function AuthButtons() {
   }, []);
 
   async function loadUser() {
-    // Защита от параллельных вызовов
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     lastLoadRef.current = Date.now();
@@ -79,12 +77,10 @@ export default function AuthButtons() {
 
       const user = session.user;
 
-      // Показываем кэш сразу
       if (!loaded && cached) {
         setLoaded(true);
       }
 
-      // Если нет кэша — показываем хоть что-то
       if (!loaded && !cached) {
         setUsername(user.email?.split("@")[0] || "user");
         setLoaded(true);
@@ -145,11 +141,30 @@ export default function AuthButtons() {
     clearCache("auth-user");
     clearCache("profile");
     clearCache("user-role");
-    await supabase.auth.signOut();
+
     setUsername(null);
     setBalance(null);
     setIsAdmin(false);
     setRole("user");
+
+    try {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject("timeout"), 3000)
+      );
+      await Promise.race([supabase.auth.signOut(), timeout]);
+    } catch {
+      // Даже если signOut не сработал — всё равно редиректим
+    }
+
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach((key) => {
+        if (key.startsWith("sb-")) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch {}
+
     window.location.assign("/");
   }
 
