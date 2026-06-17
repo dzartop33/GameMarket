@@ -10,6 +10,46 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  async function ensureUserData(userId: string, userEmail: string, userName: string) {
+    try {
+      // Проверяем profiles
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId);
+
+      if (!existingProfile || existingProfile.length === 0) {
+        await supabase.from("profiles").insert([
+          {
+            id: userId,
+            username: userName,
+            email: userEmail,
+            role: "user",
+            is_blocked: false,
+          },
+        ]);
+      }
+
+      // Проверяем balances
+      const { data: existingBalance } = await supabase
+        .from("balances")
+        .select("id")
+        .eq("id", userId);
+
+      if (!existingBalance || existingBalance.length === 0) {
+        await supabase.from("balances").insert([
+          {
+            id: userId,
+            email: userEmail,
+            balance: 0,
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Ошибка создания данных пользователя:", error);
+    }
+  }
+
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
 
@@ -21,21 +61,27 @@ export default function RegisterPage() {
       return;
     }
 
+    if (cleanUsername.length < 3) {
+      alert("Никнейм должен быть не менее 3 символов");
+      return;
+    }
+
     setLoading(true);
 
-    const { data: existingProfile } = await supabase
+    // Проверяем занят ли никнейм
+    const { data: takenProfile } = await supabase
       .from("profiles")
       .select("id")
-      .eq("username", cleanUsername)
-      .maybeSingle();
+      .eq("username", cleanUsername);
 
-    if (existingProfile) {
+    if (takenProfile && takenProfile.length > 0) {
       alert("Такой никнейм уже занят");
       setLoading(false);
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    // Регистрация
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
@@ -45,25 +91,31 @@ export default function RegisterPage() {
       },
     });
 
-    if (error) {
-      alert(error.message);
+    if (signUpError) {
+      alert(signUpError.message);
       setLoading(false);
       return;
     }
 
-    const { error: loginError } =
+    // Входим сразу после регистрации
+    const { data: loginData, error: loginError } =
       await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
       });
 
-    setLoading(false);
-
     if (loginError) {
       alert(loginError.message);
+      setLoading(false);
       return;
     }
 
+    // Гарантированно создаём profiles и balances
+    if (loginData?.user) {
+      await ensureUserData(loginData.user.id, cleanEmail, cleanUsername);
+    }
+
+    setLoading(false);
     window.location.assign("/");
   }
 
@@ -71,25 +123,14 @@ export default function RegisterPage() {
     <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center px-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">
-            Создать аккаунт
-          </h1>
-
-          <p className="text-zinc-400 mt-2">
-            Присоединяйтесь к GameMarket
-          </p>
+          <h1 className="text-3xl font-bold">Создать аккаунт</h1>
+          <p className="text-zinc-400 mt-2">Присоединяйтесь к GameMarket</p>
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-          <form
-            onSubmit={handleRegister}
-            className="space-y-4"
-          >
+          <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">
-                Никнейм
-              </label>
-
+              <label className="block text-sm text-zinc-400 mb-2">Никнейм</label>
               <input
                 type="text"
                 value={username}
@@ -101,10 +142,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">
-                Email
-              </label>
-
+              <label className="block text-sm text-zinc-400 mb-2">Email</label>
               <input
                 type="email"
                 value={email}
@@ -116,10 +154,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">
-                Пароль
-              </label>
-
+              <label className="block text-sm text-zinc-400 mb-2">Пароль</label>
               <input
                 type="password"
                 value={password}
@@ -133,7 +168,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-black py-4 rounded-xl font-bold hover:opacity-90 transition"
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-black py-4 rounded-xl font-bold hover:opacity-90 transition disabled:opacity-50"
             >
               {loading ? "Создание..." : "Создать аккаунт"}
             </button>
@@ -142,10 +177,7 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-zinc-400 text-center">
           Уже есть аккаунт?{" "}
-          <Link
-            href="/login"
-            className="text-cyan-400 hover:underline"
-          >
+          <Link href="/login" className="text-cyan-400 hover:underline">
             Войти
           </Link>
         </p>

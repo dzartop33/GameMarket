@@ -9,6 +9,46 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  async function ensureUserData(userId: string, userEmail: string) {
+    try {
+      // Проверяем profiles
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId);
+
+      if (!existingProfile || existingProfile.length === 0) {
+        await supabase.from("profiles").insert([
+          {
+            id: userId,
+            username: userEmail.split("@")[0],
+            email: userEmail,
+            role: "user",
+            is_blocked: false,
+          },
+        ]);
+      }
+
+      // Проверяем balances
+      const { data: existingBalance } = await supabase
+        .from("balances")
+        .select("id")
+        .eq("id", userId);
+
+      if (!existingBalance || existingBalance.length === 0) {
+        await supabase.from("balances").insert([
+          {
+            id: userId,
+            email: userEmail,
+            balance: 0,
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Ошибка проверки данных пользователя:", error);
+    }
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
 
@@ -17,42 +57,40 @@ export default function LoginPage() {
 
     setLoading(true);
 
+    // Если ввели никнейм а не email
     if (!cleanLogin.includes("@")) {
-      const { data: profile, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("email")
-          .eq("username", cleanLogin)
-          .maybeSingle();
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("username", cleanLogin);
 
-      if (profileError) {
-        alert(profileError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!profile) {
+      if (!profiles || profiles.length === 0) {
         alert("Пользователь с таким логином не найден");
         setLoading(false);
         return;
       }
 
-      emailToUse = profile.email;
+      emailToUse = profiles[0].email;
     }
 
-    const { error } =
-      await supabase.auth.signInWithPassword({
-        email: emailToUse,
-        password,
-      });
-
-    setLoading(false);
+    // Входим
+    const { data: loginData, error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password,
+    });
 
     if (error) {
       alert(error.message);
+      setLoading(false);
       return;
     }
 
+    // Гарантированно проверяем/создаём profiles и balances
+    if (loginData?.user) {
+      await ensureUserData(loginData.user.id, loginData.user.email || emailToUse);
+    }
+
+    setLoading(false);
     window.location.assign("/");
   }
 
@@ -60,25 +98,16 @@ export default function LoginPage() {
     <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center px-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">
-            Вход в аккаунт
-          </h1>
-
-          <p className="text-zinc-400 mt-2">
-            Рады видеть вас снова
-          </p>
+          <h1 className="text-3xl font-bold">Вход в аккаунт</h1>
+          <p className="text-zinc-400 mt-2">Рады видеть вас снова</p>
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-          <form
-            onSubmit={handleLogin}
-            className="space-y-4"
-          >
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm text-zinc-400 mb-2">
                 Логин или Email
               </label>
-
               <input
                 type="text"
                 value={login}
@@ -90,10 +119,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">
-                Пароль
-              </label>
-
+              <label className="block text-sm text-zinc-400 mb-2">Пароль</label>
               <input
                 type="password"
                 value={password}
@@ -107,7 +133,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-black py-4 rounded-xl font-bold hover:opacity-90 transition"
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-black py-4 rounded-xl font-bold hover:opacity-90 transition disabled:opacity-50"
             >
               {loading ? "Вход..." : "Войти"}
             </button>
@@ -116,10 +142,7 @@ export default function LoginPage() {
 
         <p className="mt-6 text-zinc-400 text-center">
           Нет аккаунта?{" "}
-          <Link
-            href="/register"
-            className="text-cyan-400 hover:underline"
-          >
+          <Link href="/register" className="text-cyan-400 hover:underline">
             Зарегистрироваться
           </Link>
         </p>
