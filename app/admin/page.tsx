@@ -123,30 +123,18 @@ export default function AdminPage() {
 
     const channel = supabase
       .channel("admin-realtime")
-
-      // Новые заявки на пополнение
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "deposit_requests",
-        },
+        { event: "INSERT", schema: "public", table: "deposit_requests" },
         (payload) => {
           const newDeposit = payload.new as DepositRequest;
           setDeposits((prev) => [newDeposit, ...prev]);
           showAlert(`💰 Новая заявка на пополнение: ${newDeposit.amount} ₽ от ${newDeposit.user_email}`);
         }
       )
-
-      // Обновления заявок на пополнение
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "deposit_requests",
-        },
+        { event: "UPDATE", schema: "public", table: "deposit_requests" },
         (payload) => {
           const updated = payload.new as DepositRequest;
           setDeposits((prev) =>
@@ -154,30 +142,18 @@ export default function AdminPage() {
           );
         }
       )
-
-      // Новые заявки на вывод
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "withdrawal_requests",
-        },
+        { event: "INSERT", schema: "public", table: "withdrawal_requests" },
         (payload) => {
           const newWithdrawal = payload.new as WithdrawalRequest;
           setWithdrawals((prev) => [newWithdrawal, ...prev]);
           showAlert(`💸 Новая заявка на вывод: ${newWithdrawal.amount} ₽ от ${newWithdrawal.user_email}`);
         }
       )
-
-      // Обновления заявок на вывод
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "withdrawal_requests",
-        },
+        { event: "UPDATE", schema: "public", table: "withdrawal_requests" },
         (payload) => {
           const updated = payload.new as WithdrawalRequest;
           setWithdrawals((prev) =>
@@ -185,58 +161,34 @@ export default function AdminPage() {
           );
         }
       )
-
-      // Новые товары
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "products",
-        },
+        { event: "INSERT", schema: "public", table: "products" },
         (payload) => {
           const newProduct = payload.new as Product;
           setProducts((prev) => [newProduct, ...prev]);
         }
       )
-
-      // Удаление товаров
       .on(
         "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "products",
-        },
+        { event: "DELETE", schema: "public", table: "products" },
         (payload) => {
           const deleted = payload.old as Product;
           setProducts((prev) => prev.filter((p) => p.id !== deleted.id));
         }
       )
-
-      // Новые сделки
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "deals",
-        },
+        { event: "INSERT", schema: "public", table: "deals" },
         (payload) => {
           const newDeal = payload.new as Deal;
           setDeals((prev) => [newDeal, ...prev]);
           showAlert(`🤝 Новая сделка: ${newDeal.product_title}`);
         }
       )
-
-      // Обновления сделок
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "deals",
-        },
+        { event: "UPDATE", schema: "public", table: "deals" },
         (payload) => {
           const updated = payload.new as Deal;
           setDeals((prev) =>
@@ -244,7 +196,6 @@ export default function AdminPage() {
           );
         }
       )
-
       .subscribe();
 
     channelRef.current = channel;
@@ -254,7 +205,6 @@ export default function AdminPage() {
     setNewAlert(message);
     setTimeout(() => setNewAlert(""), 5000);
 
-    // Звуковое уведомление
     try {
       const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkZeYl5GJfXFkV0xDPDk5PUNLVWBqdH+IkJaZmZeTi4F2amBWTkdCPz9DR01WYGp0f4iQlpmZk4uBdmhfVU5HQj9AQ0dOV2FrdYCJkZaZmZOKgXZoX1VOR0I/QENHUF5p");
       audio.volume = 0.3;
@@ -365,16 +315,18 @@ export default function AdminPage() {
     setActionLoading(null);
   }
 
-  async function rejectDeposit(id: number) {
+  async function rejectDeposit(id: number, reason: string) {
     setActionLoading(id);
 
     await supabase
       .from("deposit_requests")
-      .update({ status: "rejected" })
+      .update({ status: "rejected", comment: reason })
       .eq("id", id);
 
     setDeposits((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, status: "rejected" } : d))
+      prev.map((d) =>
+        d.id === id ? { ...d, status: "rejected", comment: reason } : d
+      )
     );
 
     setActionLoading(null);
@@ -542,7 +494,6 @@ export default function AdminPage() {
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-12">
 
-        {/* Всплывающее уведомление */}
         {newAlert && (
           <div className="fixed top-4 right-4 z-50 bg-cyan-500 text-black px-6 py-4 rounded-2xl shadow-lg shadow-cyan-500/20 animate-bounce max-w-sm">
             <p className="font-bold text-sm">{newAlert}</p>
@@ -597,52 +548,99 @@ export default function AdminPage() {
                   deposits.map((dep) => (
                     <div
                       key={dep.id}
-                      className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                      className={`bg-zinc-900 border rounded-xl p-4 flex flex-col gap-4 ${
                         dep.status === "pending"
                           ? "border-yellow-500/30"
                           : "border-zinc-800"
                       }`}
                     >
-                      <div>
-                        <p className="font-bold">{dep.user_email}</p>
-                        <p className="text-zinc-400 text-sm">
-                          {dep.amount.toFixed(2)} ₽ →{" "}
-                          {(dep.amount * 0.9).toFixed(2)} ₽
-                        </p>
-                        <p className="text-zinc-500 text-xs">
-                          #{dep.id} ·{" "}
-                          {new Date(dep.created_at).toLocaleString("ru")}
-                        </p>
-                        {dep.comment && (
-                          <p className="text-cyan-400 text-xs mt-1">
-                            {dep.comment}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <p className="font-bold">{dep.user_email}</p>
+                          <p className="text-zinc-400 text-sm">
+                            {dep.amount.toFixed(2)} ₽ →{" "}
+                            {(dep.amount * 0.9).toFixed(2)} ₽
                           </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
+                          <p className="text-zinc-500 text-xs">
+                            #{dep.id} ·{" "}
+                            {new Date(dep.created_at).toLocaleString("ru")}
+                          </p>
+                          {dep.comment && (
+                            <p className="text-cyan-400 text-xs mt-1">
+                              {dep.comment}
+                            </p>
+                          )}
+                        </div>
+
                         {dep.status === "pending" ? (
-                          <>
+                          <div className="flex flex-wrap gap-2">
+                            {/* Подтвердить */}
                             <button
                               onClick={() => approveDeposit(dep)}
                               disabled={actionLoading === dep.id}
-                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
+                              className="bg-green-500 text-black px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 whitespace-nowrap"
                             >
-                              {actionLoading === dep.id ? "..." : "✓"}
+                              {actionLoading === dep.id ? "..." : "✓ Подтвердить"}
                             </button>
+
+                            {/* Сумма не совпадает */}
                             <button
-                              onClick={() => rejectDeposit(dep.id)}
+                              onClick={() => rejectDeposit(dep.id, "❌ Сумма не совпадает")}
                               disabled={actionLoading === dep.id}
-                              className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                              className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
                             >
-                              ✕
+                              💰 Сумма не совпадает
                             </button>
-                          </>
+
+                            {/* Комментарий не указан */}
+                            <button
+                              onClick={() => rejectDeposit(dep.id, "❌ Комментарий не указан")}
+                              disabled={actionLoading === dep.id}
+                              className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+                            >
+                              💬 Нет комментария
+                            </button>
+
+                            {/* Отклонить */}
+                            <button
+                              onClick={() => rejectDeposit(dep.id, "❌ Отклонено администратором")}
+                              disabled={actionLoading === dep.id}
+                              className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+                            >
+                              ✕ Отклонить
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-sm">
-                            {dep.status === "approved" ? "✅" : "❌"}
+                            {dep.status === "approved" ? "✅ Одобрено" : "❌ Отклонено"}
                           </span>
                         )}
                       </div>
+
+                      {/* Подсказка для проверки */}
+                      {dep.status === "pending" && (
+                        <div className="bg-zinc-800/50 rounded-xl p-3 text-xs text-zinc-400 space-y-1">
+                          <p>📋 <span className="text-white font-medium">Что проверить:</span></p>
+                          <p>
+                            1. Сумма перевода:{" "}
+                            <span className="text-cyan-400 font-bold">
+                              {dep.amount.toFixed(2)} ₽
+                            </span>
+                          </p>
+                          <p>
+                            2. Комментарий к переводу:{" "}
+                            <span className="text-cyan-400 font-bold">
+                              GameMarket ID{dep.id}
+                            </span>
+                          </p>
+                          <p>
+                            3. Отправитель:{" "}
+                            <span className="text-cyan-400 font-bold">
+                              {dep.user_email}
+                            </span>
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -741,9 +739,7 @@ export default function AdminPage() {
                         {user.balance.toFixed(2)} ₽
                       </p>
                       <button
-                        onClick={() =>
-                          toggleRole(user.id, user.role || "user")
-                        }
+                        onClick={() => toggleRole(user.id, user.role || "user")}
                         className={`px-3 py-1 rounded-lg text-xs ${
                           user.role === "admin"
                             ? "bg-yellow-500/20 text-yellow-400"
@@ -753,9 +749,7 @@ export default function AdminPage() {
                         {user.role === "admin" ? "Снять" : "Админ"}
                       </button>
                       <button
-                        onClick={() =>
-                          toggleBlock(user.id, !!user.is_blocked)
-                        }
+                        onClick={() => toggleBlock(user.id, !!user.is_blocked)}
                         className={`px-3 py-1 rounded-lg text-xs ${
                           user.is_blocked
                             ? "bg-green-500/20 text-green-400"
@@ -785,9 +779,7 @@ export default function AdminPage() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() =>
-                          toggleModeration(p.id, p.is_moderated)
-                        }
+                        onClick={() => toggleModeration(p.id, p.is_moderated)}
                         className={`px-3 py-1 rounded-lg text-xs ${
                           p.is_moderated
                             ? "bg-red-500/20 text-red-400"
