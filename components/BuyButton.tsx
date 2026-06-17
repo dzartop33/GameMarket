@@ -36,6 +36,17 @@ export default function BuyButton({
         return;
       }
 
+      // Проверяем бан
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("is_blocked")
+        .eq("id", session.user.id);
+
+      if (profileData?.[0]?.is_blocked) {
+        alert("Ваш аккаунт заблокирован. Покупка невозможна.");
+        return;
+      }
+
       const priceNum = parseFloat(price.replace(/[^\d.]/g, ""));
 
       if (isNaN(priceNum) || priceNum <= 0) {
@@ -43,15 +54,38 @@ export default function BuyButton({
         return;
       }
 
+      // Проверяем количество товара
+      const { data: productData } = await supabase
+        .from("products")
+        .select("quantity, status, title")
+        .eq("id", productId);
+
+      const product = productData?.[0];
+
+      if (!product) {
+        alert("Товар не найден");
+        return;
+      }
+
+      if (product.status === "sold") {
+        alert("Товар уже продан");
+        return;
+      }
+
+      if (product.quantity !== null && product.quantity <= 0) {
+        alert("Товар закончился");
+        return;
+      }
+
       const confirmed = confirm(
-        `Купить "${productTitle}" за ${priceNum.toFixed(2)} ₽?\n\nСумма будет списана с вашего баланса.`
+        `Купить "${productTitle}" за ${priceNum.toFixed(2)} ₽?\n\nКомиссия сервиса: ${(priceNum * 0.05).toFixed(2)} ₽\nСумма будет списана с вашего баланса.`
       );
 
       if (!confirmed) return;
 
       setLoading(true);
 
-      // Используем массив вместо .single()
+      // Проверяем баланс
       const { data: balanceData } = await supabase
         .from("balances")
         .select("balance")
@@ -61,9 +95,9 @@ export default function BuyButton({
 
       if (!buyerBalance || Number(buyerBalance.balance) < priceNum) {
         alert(
-          `Недостаточно средств.\n\nБаланс: ${
+          `Недостаточно средств.\n\nВаш баланс: ${
             buyerBalance ? Number(buyerBalance.balance).toFixed(2) : "0.00"
-          } ₽\nЦена: ${priceNum.toFixed(2)} ₽`
+          } ₽\nЦена: ${priceNum.toFixed(2)} ₽\n\nПополните баланс в разделе Кошелёк.`
         );
         setLoading(false);
         return;
@@ -83,7 +117,7 @@ export default function BuyButton({
         return;
       }
 
-      // Переводим деньги
+      // Переводим деньги с комиссией
       const { error: transferError } = await supabase.rpc("transfer_funds", {
         buyer_id_input: session.user.id,
         seller_id_input: sellerId,
@@ -91,10 +125,18 @@ export default function BuyButton({
       });
 
       if (transferError) {
-        alert(transferError.message);
+        alert(`Ошибка оплаты: ${transferError.message}`);
         setLoading(false);
         return;
       }
+
+      // Уменьшаем количество товара
+      await supabase.rpc("decrease_product_quantity", {
+        product_id_input: productId,
+      });
+
+      const commission = priceNum * 0.05;
+      const sellerAmount = priceNum - commission;
 
       // Записываем транзакции и сделку параллельно
       await Promise.all([
@@ -107,8 +149,8 @@ export default function BuyButton({
         supabase.from("transactions").insert([{
           user_id: sellerId,
           type: "sale",
-          amount: priceNum,
-          description: `Продажа: ${productTitle}`,
+          amount: sellerAmount,
+          description: `Продажа: ${productTitle} (комиссия ${commission.toFixed(2)} ₽)`,
         }]),
         supabase.from("deals").insert([{
           product_id: productId,
@@ -123,7 +165,7 @@ export default function BuyButton({
       ]);
 
       setLoading(false);
-      alert("Покупка успешна!");
+      alert(`✅ Покупка успешна!\n\nСписано: ${priceNum.toFixed(2)} ₽\nПродавец получит: ${sellerAmount.toFixed(2)} ₽`);
       window.location.assign("/deals");
     } catch (error) {
       console.error("Ошибка покупки:", error);

@@ -17,17 +17,14 @@ export default function LoginPage() {
         .eq("id", userId);
 
       if (!existingProfile || existingProfile.length === 0) {
-        await supabase.from("profiles").insert([
-          {
-            id: userId,
-            username: userEmail.split("@")[0],
-            email: userEmail,
-            role: "user",
-            is_blocked: false,
-          },
-        ]);
+        await supabase.from("profiles").insert([{
+          id: userId,
+          username: userEmail.split("@")[0],
+          email: userEmail,
+          role: "user",
+          is_blocked: false,
+        }]);
       } else if (!existingProfile[0].email) {
-        // Если email пустой — обновляем
         await supabase
           .from("profiles")
           .update({ email: userEmail })
@@ -40,16 +37,14 @@ export default function LoginPage() {
         .eq("id", userId);
 
       if (!existingBalance || existingBalance.length === 0) {
-        await supabase.from("balances").insert([
-          {
-            id: userId,
-            email: userEmail,
-            balance: 0,
-          },
-        ]);
+        await supabase.from("balances").insert([{
+          id: userId,
+          email: userEmail,
+          balance: 0,
+        }]);
       }
     } catch (error) {
-      console.error("Ошибка проверки данных пользователя:", error);
+      console.error("Ошибка проверки данных:", error);
     }
   }
 
@@ -61,51 +56,74 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    // Если ввели никнейм а не email
-    if (!cleanLogin.includes("@")) {
-      const { data: profiles } = await supabase
+    try {
+      // Если ввели никнейм
+      if (!cleanLogin.includes("@")) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("username", cleanLogin);
+
+        if (!profiles || profiles.length === 0) {
+          alert("Пользователь с таким логином не найден");
+          setLoading(false);
+          return;
+        }
+
+        emailToUse = profiles[0].email;
+
+        if (!emailToUse) {
+          alert("У этого аккаунта не привязана почта. Попробуйте войти через email.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Входим
+      const { data: loginData, error } = await supabase.auth.signInWithPassword({
+        email: emailToUse,
+        password,
+      });
+
+      if (error) {
+        if (error.message === "Invalid login credentials") {
+          alert("Неверный логин или пароль");
+        } else {
+          alert(error.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!loginData?.user) {
+        alert("Ошибка входа");
+        setLoading(false);
+        return;
+      }
+
+      // Проверяем бан
+      const { data: profileData } = await supabase
         .from("profiles")
-        .select("email")
-        .eq("username", cleanLogin);
+        .select("is_blocked, username")
+        .eq("id", loginData.user.id);
 
-      if (!profiles || profiles.length === 0) {
-        alert("Пользователь с таким логином не найден");
+      if (profileData?.[0]?.is_blocked) {
+        await supabase.auth.signOut();
+        alert("❌ Ваш аккаунт заблокирован.\n\nОбратитесь в поддержку: support@gamemarket.ru");
         setLoading(false);
         return;
       }
 
-      emailToUse = profiles[0].email;
-
-      if (!emailToUse) {
-        alert("У этого аккаунта не привязана почта. Попробуйте войти через email.");
-        setLoading(false);
-        return;
-      }
-    }
-
-    // Входим
-    const { data: loginData, error } = await supabase.auth.signInWithPassword({
-      email: emailToUse,
-      password,
-    });
-
-    if (error) {
-      if (error.message === "Invalid login credentials") {
-        alert("Неверный логин или пароль");
-      } else {
-        alert(error.message);
-      }
-      setLoading(false);
-      return;
-    }
-
-    // Гарантированно проверяем/создаём profiles и balances
-    if (loginData?.user) {
+      // Создаём данные если нет
       await ensureUserData(loginData.user.id, loginData.user.email || emailToUse);
-    }
 
-    setLoading(false);
-    window.location.assign("/");
+      setLoading(false);
+      window.location.assign("/");
+    } catch (error) {
+      console.error("Ошибка входа:", error);
+      alert("Произошла ошибка. Попробуйте снова.");
+      setLoading(false);
+    }
   }
 
   return (
